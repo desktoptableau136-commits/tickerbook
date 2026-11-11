@@ -31,6 +31,10 @@
     {
       "symbol": "SPCX",
       "tag": "researching"
+    },
+    {
+      "symbol": "COST",
+      "tag": "researching"
     }
   ]
 }
