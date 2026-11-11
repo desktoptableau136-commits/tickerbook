@@ -13,18 +13,11 @@
       "tag": "watching"
     },
     {
-      "symbol": "NVDA",
-      "tag": "researching"
-    },
-    {
-      "symbol": "VOO",
-      "tag": "archived",
-      "archivedOn": "2026-11-11",
-      "archivedPrice": 689.5,
-      "archivedPriceDate": "2026-11-10"
-    },
-    {
       "symbol": "TGT",
+      "tag": "watching"
+    },
+    {
+      "symbol": "NVDA",
       "tag": "researching"
     },
     {
