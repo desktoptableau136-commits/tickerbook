@@ -2,6 +2,20 @@
 
 A personal stock watchlist that explains the numbers in plain English. It's a static site on GitHub Pages, and GitHub Actions refreshes the data from Yahoo Finance every weekday after the market closes.
 
+## What it shows
+
+- **Home:** your tickers with a quick read, "N new" badges for what changed since you last looked, upcoming earnings, a side-by-side table.
+- **Each stock:**
+  - **Summary:** signal checklist, price chart (vs the S&P 500, and "Drops" from its highs).
+  - **Earnings:** last quarter in plain English, the company's own press release.
+  - **Financials:** includes "Where the cash goes".
+  - **Valuation:** 7 methods with the math shown.
+  - **Peers:** how it stacks up against the largest companies in its industry.
+  - **Analysts:** ratings, targets, rating changes, and what insiders are buying and selling.
+  - **News.**
+- **Index funds:** Summary, Holdings, News.
+- **Learn:** every term explained, plus how to read an earnings report.
+
 ## What's where
 
 | Path | What it does |
@@ -12,6 +26,7 @@ A personal stock watchlist that explains the numbers in plain English. It's a st
 | `scripts/fetch.py` | Pulls data from Yahoo Finance and writes `data/*.json` |
 | `watchlist.json` | Your tickers and tags (owned / watching / researching) |
 | `.github/workflows/update.yml` | Scheduled refresh + "Research" runs + deploy to Pages |
+| `docs/architecture.md` | How it all works, in detail (for whoever changes the code) |
 
 ## Run it locally
 
@@ -54,10 +69,11 @@ The address is sent only to sec.gov, in the request header.
 - **Content Security Policy** (in `index.html`): the page can only load its own files and talk to `api.github.com`. Anything else is blocked by the browser.
 - **No referrer**: when you open a news link, the other site isn't told where you came from.
 - **No indexing**: `noindex` / `noarchive` / `noai` meta tags plus `robots.txt` with `Disallow: /`.
-- **Local only**: settings and your GitHub token live in your browser's local storage on each device.
+- **Local only**: settings, your GitHub token and "since you last looked" notes live in your browser's local storage on each device.
 
 ## Notes
 
 - Data is from Yahoo Finance via `yfinance`, which is unofficial and occasionally breaks or gets rate-limited. Re-running usually fixes it.
+- Pushing code only redeploys the site. New data fields show up after the next data refresh (weekday evenings, or **Actions → Update data and deploy → Run workflow**).
 - Yahoo doesn't keep history of P/E or analyst estimates, so `fetch.py` saves a daily snapshot into each ticker's file. Those charts fill in over time.
 - For learning and research only. Not financial advice.

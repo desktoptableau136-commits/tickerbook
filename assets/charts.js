@@ -80,6 +80,7 @@ function responsive(container, draw, opts = {}) {
 
 // ---------------------------------------------------------------- line chart
 
+// A series may carry `tip(i, v)` to word its own hover value (e.g. "−12% · $182.40").
 export function lineChart(container, opts) {
   const { dates, series, yFormat = (v) => v.toFixed(2), xFormat, area = true, refLine, ariaLabel } = opts;
   container.classList.add("chart");
@@ -157,7 +158,7 @@ export function lineChart(container, opts) {
         topY = Math.min(topY, Y(v));
       });
       tt.show(x, topY, opts.tipTitle ? opts.tipTitle(dates[cur]) : dates[cur],
-        series.filter((s) => s.values[cur] != null).map((s) => ({ color: s.color, value: yFormat(s.values[cur]), label: series.length > 1 ? s.name : opts.tipLabel?.(cur) })));
+        series.filter((s) => s.values[cur] != null).map((s) => ({ color: s.color, value: s.tip ? s.tip(cur, s.values[cur]) : yFormat(s.values[cur]), label: series.length > 1 ? s.name : opts.tipLabel?.(cur) })));
     };
     const hide = () => { cross.setAttribute("visibility", "hidden"); dots.forEach((d) => d.setAttribute("visibility", "hidden")); tt.hide(); };
     hit.addEventListener("pointermove", (e) => {

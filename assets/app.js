@@ -297,6 +297,10 @@ function renderTicker(sym, tab) {
 const grid = (name, flow = false) => h("div", { class: `cols dash dash-${name}${flow ? " dash-flow" : ""}` });
 
 // ---------------------------------------------------------------- price chart
+// hover values for the price chart's % views: "−12.3%", "$182.40", and the S&P 500 in index points
+const pctTip = (v) => (Math.abs(v) < 0.0005 ? "at its high" : `${v < 0 ? "−" : "+"}${Math.abs(v * 100).toFixed(1)}%`);
+const usd = (v) => `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const idxPts = (v) => `${Math.round(v).toLocaleString("en-US")} pts`;
 const RANGES = [["1M", 21], ["6M", 126], ["YTD", "ytd"], ["1Y", 252], ["5Y", Infinity]];
 
 function priceCard(d) {
@@ -324,14 +328,15 @@ function priceCard(d) {
       // how far below its running high (over all the history we have) it was each day
       const dd = A.drawdowns(dates, close), us = dd.under.slice(start);
       const withB = vsMarket && state.bench && d.symbol !== "VOO";
-      const series = [{ name: d.symbol, values: us, color: "var(--series-1)" }];
+      const series = [{ name: d.symbol, values: us, color: "var(--series-1)", tip: (i, v) => `${pctTip(v)} · ${usd(cs[i])}` }];
       if (withB) {
-        const bu = A.drawdowns(state.bench.dates, state.bench.close).under, bmap = new Map(state.bench.dates.map((x, i) => [x, bu[i]]));
-        series.push({ name: "S&P 500", values: ds.map((x) => bmap.get(x) ?? null), color: "var(--series-2)" });
+        const bu = A.drawdowns(state.bench.dates, state.bench.close).under, bmap = new Map(state.bench.dates.map((x, i) => [x, i]));
+        const bi = ds.map((x) => bmap.get(x));
+        series.push({ name: "S&P 500", values: bi.map((j) => (j == null ? null : bu[j])), color: "var(--series-2)", tip: (i, v) => `${pctTip(v)} · ${idxPts(state.bench.close[bi[i]])}` });
         box.append(legend(series.map((s) => ({ name: s.name, color: s.color, kind: "line" }))));
       }
       box.append(c);
-      lineChart(c, { dates: ds, series, area: false, refLine: 0, yMax: 0, yFormat: (v, axis) => (Math.abs(v) < 0.0005 ? "0%" : `${v < 0 ? "−" : "+"}${Math.abs(v * 100).toFixed(axis ? 0 : 1)}%`), xFormat: fmtX, tipTitle, height: 230, fill: true,
+      lineChart(c, { dates: ds, series, area: false, refLine: 0, yMax: 0, yFormat: (v, axis) => (axis ? (Math.abs(v) < 0.0005 ? "0%" : `−${Math.abs(v * 100).toFixed(0)}%`) : pctTip(v)), xFormat: fmtX, tipTitle, height: 230, fill: true,
         ariaLabel: `${d.symbol} percent below its previous high, ${range}` });
       const worst = Math.min(...us);
       perf.replaceChildren(h("span", { class: "down" }, `Worst ${A.pct(worst, { digits: 0 })}`), ` in ${span} · now `, h("b", {}, us[us.length - 1] > -0.005 ? "at its high" : `${A.pct(-us[us.length - 1], { digits: 0 })} below its high`));
@@ -346,7 +351,9 @@ function priceCard(d) {
       const ss = cs.map((v) => (v / cs[0]) * 100);
       const lastB = [...bs].reverse().find((v) => v != null);
       box.append(legend([{ name: d.symbol, color: "var(--series-1)", kind: "line" }, { name: "S&P 500", color: "var(--series-2)", kind: "line" }]), c);
-      lineChart(c, { dates: ds, series: [{ name: d.symbol, values: ss, color: "var(--series-1)" }, { name: "S&P 500", values: bs, color: "var(--series-2)" }],
+      const idxTip = (v) => (v - 100 >= 0 ? "+" : "−") + Math.abs(v - 100).toFixed(1) + "%";
+      lineChart(c, { dates: ds, series: [{ name: d.symbol, values: ss, color: "var(--series-1)", tip: (i, v) => `${idxTip(v)} · ${usd(cs[i])}` },
+        { name: "S&P 500", values: bs, color: "var(--series-2)", tip: (i, v) => `${idxTip(v)} · ${idxPts(bmap.get(ds[i]))}` }],
         yFormat: (v) => (v - 100 >= 0 ? "+" : "−") + Math.abs(v - 100).toFixed(0) + "%", xFormat: fmtX, tipTitle, height: 230, fill: true, refLine: 100, ariaLabel: `${d.symbol} vs S&P 500, indexed` });
       const bchg = lastB / 100 - 1;
       perf.append(` · S&P 500 ${A.pct(bchg, { sign: true })}. `, h("b", {}, chg >= bchg ? `Beat the market by ${A.pct(chg - bchg)}` : `Trailed the market by ${A.pct(bchg - chg)}`));
