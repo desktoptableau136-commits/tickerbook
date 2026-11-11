@@ -932,13 +932,15 @@ function tabAnalysts(d, body) {
         h("div", { class: "rec-scale" }, h("div", { class: "rec-dot", style: `left:${10 + (80 * (2 - sc.avg)) / 4}%` }), ["Strong buy", "Buy", "Hold", "Sell", "Strong sell"].map((t) => h("span", {}, t))),
         h("p", { class: "small ink2", style: "margin:6px 0 0" }, rich(sc.avg < -0.1 ? "**More analysts say sell than buy.** That's unusual: analysts rarely say sell, so even a few sells is a meaningful warning." : sc.avg > 0.1 ? "More analysts say buy than sell." : "Buys and sells roughly cancel out."))) : null,
       months.length > 1 ? h("div", { class: "rec-months" }, h("div", { class: "muted small" }, "How the mix has changed (net score: buy +, sell −)"),
+        h("div", { class: "rec-month rec-head muted small" }, h("span"), h("span"), h("span", {}, "Net"), h("span", {}, "Each"), h("span", { class: "has-tip", "data-tip": "Change in the net score from the month before." }, "Change")),
         months.map((r, i) => {
           const s1 = A.ratingScore(r), s0 = months[i + 1] ? A.ratingScore(months[i + 1]) : null;
           const dv = s1 && s0 ? s1.net - s0.net : null;
-          return h("div", { class: "rec-month" }, h("span", { class: "small ink2" }, MON[r.period]), miniBar(r),
-            h("span", { class: "small tnum rec-net", "data-tip": s1 ? `Net score ${sgn(s1.net)} from ${s1.n} analysts, ${sgn(s1.avg, 2)} each on average.${dv != null ? ` ${dv === 0 ? "No change from" : dv > 0 ? `Up ${dv} from` : `Down ${-dv} from`} the month before.` : ""}` : "", "data-tip-title": MON[r.period] },
-              h("b", {}, s1 ? sgn(s1.net) : "–"), h("span", { class: "muted" }, s1 ? ` (${sgn(s1.avg, 2)} each)` : ""),
-              dv ? h("span", { class: dv > 0 ? "rec-chg up" : "rec-chg down" }, dv > 0 ? ` ▲${dv}` : ` ▼${-dv}`) : null));
+          const tip = s1 ? `Net score ${sgn(s1.net)} from ${s1.n} analysts, ${sgn(s1.avg, 2)} each on average.${dv != null ? ` ${dv === 0 ? "No change from" : dv > 0 ? `Up ${dv} from` : `Down ${-dv} from`} the month before.` : ""}` : "";
+          return h("div", { class: "rec-month", "data-tip": tip, "data-tip-title": MON[r.period] }, h("span", { class: "small ink2" }, MON[r.period]), miniBar(r),
+            h("b", { class: "small tnum" }, s1 ? sgn(s1.net) : "–"),
+            h("span", { class: "small tnum muted" }, s1 ? sgn(s1.avg, 2) : ""),
+            h("span", { class: `small tnum rec-chg ${dv > 0 ? "up" : dv < 0 ? "down" : ""}` }, dv == null ? "" : dv > 0 ? `▲ ${dv}` : dv < 0 ? `▼ ${-dv}` : "same"));
         })) : null,
       recent.length ? h("div", { class: "rec-tally" },
         h("div", { class: "muted small" }, "Last 90 days"),

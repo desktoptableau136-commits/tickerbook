@@ -793,12 +793,13 @@ html.dash-on .dash-valuation .calc { grid-template-columns: 1fr; gap: 14px; }
 .rec-scale::before { content: ""; position: absolute; left: 10%; right: 10%; top: 4px; height: 4px; border-radius: 2px; background: linear-gradient(90deg, #1c5cab, #5598e7, #a3a29b, #e66767, #b42323); }
 .rec-dot { position: absolute; top: -1px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 2px var(--surface); }
 .rec-months { margin-top: 14px; display: grid; gap: 6px; }
-.rec-month { display: grid; grid-template-columns: 92px minmax(0, 1fr) 150px; gap: 10px; align-items: center; }
-.rec-month > span:last-child { text-align: right; }
-.rec-chg { font-weight: 700; }
+.rec-month { display: grid; grid-template-columns: 92px minmax(0, 1fr) 34px 46px 48px; gap: 10px; align-items: center; }
+.rec-month > :nth-child(n+3) { text-align: right; }
+.rec-head { margin-bottom: -2px; }
+.rec-chg { font-weight: 700; color: var(--muted); }
 .rec-chg.up { color: var(--good); }
 .rec-chg.down { color: var(--bad); }
-@media (max-width: 639px) { .rec-month { grid-template-columns: 76px minmax(0, 1fr) 132px; gap: 6px; } }
+@media (max-width: 639px) { .rec-month { grid-template-columns: 88px minmax(0, 1fr) 26px 38px 42px; gap: 6px; } }
 .rec-tally { margin-top: 14px; }
 .tally { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 4px; }
 .rchip { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: var(--ink); cursor: default; }
