@@ -202,7 +202,11 @@ export function equitySignals(d) {
   // 6. Estimate momentum
   const t1 = estRow(d.earnings?.epsTrend, "+1y");
   const r1 = estRow(d.earnings?.epsRevisions, "+1y");
-  if (isNum(t1.current) && isNum(t1["90daysAgo"]) && t1["90daysAgo"] !== 0) {
+  if (nl && isNum(t1.current) && isNum(t1["90daysAgo"]) && t1["90daysAgo"] !== 0) {
+    const ch = t1.current / t1["90daysAgo"] - 1;
+    out.push(sig("revisions", "Estimate trend", "na", "Too new to judge", `${pct(ch, { sign: true })} in 90 days`,
+      `Next year's EPS estimate has moved ${pct(ch, { sign: true })} over 90 days (to ${price(t1.current)}). For a company that listed ${nl.months} month${nl.months === 1 ? "" : "s"} ago, big moves like this are mostly analysts' first estimates settling as they learn the business, not news about it, so this check waits until it's been public for 2 years.`, "estimateRevisions"));
+  } else if (isNum(t1.current) && isNum(t1["90daysAgo"]) && t1["90daysAgo"] !== 0) {
     const ch = t1.current / t1["90daysAgo"] - 1;
     const st = ch > 0.01 ? "good" : ch > -0.01 ? "ok" : "bad";
     const rv = isNum(r1.upLast30days) ? ` In the last 30 days, ${r1.upLast30days} analysts raised and ${r1.downLast30days ?? 0} cut.` : "";
@@ -996,7 +1000,7 @@ export function judge(key, d) {
     }
     case "estimateRevisions": {
       const t1 = estRow(d.earnings?.epsTrend, "+1y");
-      if (!isNum(t1.current) || !isNum(t1["90daysAgo"]) || !t1["90daysAgo"]) return null;
+      if (!isNum(t1.current) || !isNum(t1["90daysAgo"]) || !t1["90daysAgo"] || newListing(d)) return null;
       const ch = t1.current / t1["90daysAgo"] - 1;
       return { tone: ch > 0.01 ? "good" : ch > -0.01 ? "ok" : "bad", value: `${pct(ch, { sign: true })} in 90 days`, text: ch > 0.01 ? "Estimates rising" : ch > -0.01 ? "Estimates steady" : "Estimates falling: a warning" };
     }

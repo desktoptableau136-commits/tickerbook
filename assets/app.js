@@ -402,11 +402,12 @@ function newListingNote(d) {
   if (!nl) return "";
   const g = A.expectedGrowth(d);
   const thin = [nl.reported < 4 ? `the earnings record (${nl.reported} report${nl.reported === 1 ? "" : "s"} so far; it needs 4)` : null,
-    nl.tradingDays < 200 ? `the price trend (${nl.tradingDays} trading days; a 200-day average needs 200)` : null].filter(Boolean);
+    nl.tradingDays < 200 ? `the price trend (${nl.tradingDays} trading days; a 200-day average needs 200)` : null,
+    "the estimate trend (early estimates swing while analysts learn the business)"].filter(Boolean);
   const span = nl.months < 12 ? "1- or 5-year price comparison" : "5-year price comparison";
   return h("div", { class: "notice arch-note" },
     h("b", {}, "Recently listed: "), `${A.shortName(d)} began trading on ${A.date(nl.listed)} (${nl.months} month${nl.months === 1 ? "" : "s"} ago). `,
-    thin.length ? `Some checks need more history, so they're left out of the score: ${thin.join(" and ")}. There's no ${span} yet either. ` : `There's no ${span} yet. `,
+    thin.length ? `Some checks need more history, so they're left out of the score: ${thin.length > 1 ? `${thin.slice(0, -1).join(", ")} and ${thin[thin.length - 1]}` : thin[0]}. There's no ${span} yet either. ` : `There's no ${span} yet. `,
     isNum(g) && g > A.WILD_GROWTH ? `Analysts expect about ${A.pct(g, { digits: 0 })} yearly earnings growth, which comes from a tiny base, so valuation is judged on the P/E alone. ` : "",
     "New companies' numbers and estimates tend to swing a lot in their first couple of years, so read everything here as early and rough.");
 }

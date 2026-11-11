@@ -77,7 +77,7 @@ export const GLOSSARY = {
     short: "Whether analysts are raising or cutting their forecasts.",
     what: "How the consensus EPS estimate has changed over the last 7–90 days, and how many analysts moved up vs down.",
     why: "Rising estimates are one of the more reliable positive signals. It means the business is doing better than people thought.",
-    rule: "Estimates going up while the stock goes sideways can be an opportunity. Falling estimates are a warning, even if the stock looks cheap.",
+    rule: "Estimates going up while the stock goes sideways can be an opportunity. Falling estimates are a warning, even if the stock looks cheap. For a stock listed in the last 2 years it isn't judged: early estimates swing while analysts learn the business.",
   },
   revenue: {
     term: "Revenue (sales)",
