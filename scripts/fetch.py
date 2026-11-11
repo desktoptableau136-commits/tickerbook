@@ -662,8 +662,33 @@ LEV_RE = re.compile(
     rf"|\b(?:net )?leverage(?: ratio)?\s+(?:of|was|at|to|is)\s+(?:approximately\s+|about\s+)?(\d{{1,2}}\.\d{{1,2}})\s?(?:x|×|times)(?![a-z])", re.I)
 
 
+PRINCIPAL_RE = re.compile(r"total principal amount of (?:debt|indebtedness) (?:was|of|totaled) (?:approximately )?\$\s?(\d+(?:\.\d+)?) billion", re.I)
+QTR_EBITDA_RE = re.compile(r"\b(first|second|third|fourth) quarter (pro forma )?Adjusted EBITDA (?:of|was|totaled) (?:approximately )?\$\s?(\d+(?:\.\d+)?) (billion|million)", re.I)
+
+
+def leverage_parts(t: str):
+    """When a release gives no ratio (Charter), the pieces it does give: debt at the amount owed
+    and the quarter's Adjusted EBITDA, preferring the pro forma figure after a deal."""
+    p = PRINCIPAL_RE.search(t)
+    qs = list(QTR_EBITDA_RE.finditer(t))
+    q = next((m for m in qs if m.group(2)), qs[0] if qs else None)
+    if not p or not q:
+        return None
+    return {"principalDebt": float(p.group(1)) * 1e9,
+            "quarterEbitda": float(q.group(3)) * (1e9 if q.group(4).lower() == "billion" else 1e6),
+            "quarter": q.group(1).lower(), "proForma": bool(q.group(2))}
+
+
 def company_leverage(text: str):
     t = re.sub(r"\s+", " ", text)
+    found = company_ratio(t)
+    if found:
+        return found
+    parts = leverage_parts(t)
+    return {"ratio": None, **parts} if parts else None
+
+
+def company_ratio(t: str):
     for m in LEV_RE.finditer(t):
         v = float(m.group(1) or m.group(2))
         if not 0.3 <= v <= 15 or re.search(r"target|range|goal|covenant|maximum|no more than", m.group(0), re.I):

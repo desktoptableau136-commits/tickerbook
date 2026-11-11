@@ -912,7 +912,7 @@ function tabFinancials(d, body) {
         tile("Cash", A.money(f.cash)),
         tile("Debt", A.money(f.debt)),
         tile("Net debt", lev && lev.netDebt < 0 ? `${A.money(-lev.netDebt)} net cash` : A.money(lev?.netDebt), null, "netDebtToEbitda"),
-        tile("Net debt / EBITDA", lev ? A.times(lev.ratio) : "—", levNotes?.company ? `Company: ${A.num(levNotes.company.ratio, 1)}×` : levNotes ? "Reads high: see below" : null, "netDebtToEbitda"),
+        tile("Net debt / EBITDA", lev ? A.times(lev.ratio) : "—", levNotes?.company ? `Company: ${A.num(levNotes.company.ratio, 1)}×` : levNotes?.est ? `≈${A.num(levNotes.est.ratio, 1)}× company basis` : levNotes ? "Reads high: see below" : null, "netDebtToEbitda"),
         tile("Debt / equity", A.num(f.debtToEquity, 2), null, "debtToEquity"),
         tile("Current ratio", A.num(f.currentRatio, 2), null, "currentRatio"),
         tile("Return on equity", A.pct(f.roe), null, "roe"),

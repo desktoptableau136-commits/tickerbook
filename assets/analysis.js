@@ -158,7 +158,7 @@ export function equitySignals(d) {
     const st = lev < 1.5 ? "good" : lev < 3.5 ? "ok" : "bad";
     const ln = leverageNotes(d), plainLn = ln ? ` ${ln.lines.join(" ").replace(/\*\*/g, "")}` : "";
     out.push(sig("health", "Debt load", st, { good: "Strong", ok: "Manageable", bad: "Heavy debt" }[st],
-      lev < 0 ? "Net cash" : `${times(lev)} net debt/EBITDA${ln?.company ? ` · company: ${num(ln.company.ratio, 1)}×` : ""}`,
+      lev < 0 ? "Net cash" : `${times(lev)} net debt/EBITDA${ln?.company ? ` · company: ${num(ln.company.ratio, 1)}×` : ln?.est ? ` · ≈${num(ln.est.ratio, 1)}× company basis` : ""}`,
       lev < 0
         ? `Has more cash (${money(f.cash)}) than debt (${money(f.debt)}). A very safe balance sheet that gives flexibility in downturns.`
         : `Owes ${money(nd)} more than it holds in cash: about ${num(lev, 1)} years of EBITDA. ${{
@@ -437,11 +437,17 @@ export function leverageNotes(d) {
   }
   const L = d.filing?.leverage;
   const company = L && isNum(L.ratio) ? { ...L, filed: d.filing.filed } : null;
+  // no ratio in the release, but its debt and quarterly Adjusted EBITDA give one on the company's basis
+  const cash = d.fundamentals?.cash;
+  const est = !company && L && isNum(L.principalDebt) && isNum(L.quarterEbitda) && L.quarterEbitda > 0 && isNum(cash)
+    ? { ...L, filed: d.filing.filed, ratio: (L.principalDebt - cash) / (L.quarterEbitda * 4) } : null;
   const name = shortName(d), lines = [];
-  if (jump) lines.push(`Debt jumped **${pct(jump.pct, { digits: 0 })}** (${money(jump.from)} → ${money(jump.to)}) in the quarter ending ${date(jump.period)}, usually because of an acquisition. Today's debt counts all of it, but the last 12 months of EBITDA include **at most ${jump.months} months** of whatever was bought, so this ratio reads high until a full year has passed.`);
+  if (jump) lines.push(`Debt jumped **${pct(jump.pct, { digits: 0 })}** (${money(jump.from, { digits: 1 })} → ${money(jump.to, { digits: 1 })}) in the quarter ending ${date(jump.period)}, usually because of an acquisition. Today's debt counts all of it, but the last 12 months of EBITDA include **at most ${jump.months} months** of whatever was bought, so this ratio reads high until a full year has passed.`);
   if (company) lines.push(`${name}'s own figure in its ${date(company.filed)} earnings release: **${num(company.ratio, 1)}×**${company.proForma ? ", on a pro forma basis (as if any deal had been owned for the full 12 months)" : ""}${company.adjusted ? ", using its Adjusted EBITDA" : ""}. Companies usually add back items like stock-based pay and count debt at the amount owed, which tends to give a lower number than ours (${num(lev.ratio, 1)}×, from Yahoo's totals).`);
+  if (est) lines.push(`Its ${date(est.filed)} earnings release doesn't state a leverage ratio, but it gives the pieces: **${money(est.principalDebt, { digits: 1 })} of debt** (the amount owed) and **${money(est.quarterEbitda)} of ${est.proForma ? "pro forma " : ""}Adjusted EBITDA** for the ${est.quarter} quarter${est.proForma ? " (counting any acquired business for the whole quarter)" : ""}. (${money(est.principalDebt, { digits: 1 })} − ${money(cash)} cash) ÷ (${money(est.quarterEbitda)} × 4) ≈ **${num(est.ratio, 1)}×**, closer to how the company counts. Its own figure uses the actual last 12 months, so it can differ a little.`);
   if (!lines.length) return null;
-  return { lev, jump, company, lines, short: company ? `company reports ${num(company.ratio, 1)}×` : "reads high after a recent debt jump" };
+  return { lev, jump, company, est, lines,
+    short: company ? `company reports ${num(company.ratio, 1)}×` : est ? `≈${num(est.ratio, 1)}× on the company's basis` : "reads high after a recent debt jump" };
 }
 
 // Plain-English warnings shown next to the fair-value result.
