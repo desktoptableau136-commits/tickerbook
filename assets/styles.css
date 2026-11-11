@@ -166,7 +166,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 16px var(--gutter) 96px; }
   font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--ink-2); text-transform: capitalize;
 }
 .tag.plain { text-transform: none; }
-.tag.owned { background: color-mix(in srgb, var(--series-1) 16%, transparent); }
+.tag.archived { background: none; border: 1px dashed var(--border); color: var(--muted); }
 .tag.researching { background: color-mix(in srgb, var(--series-2) 16%, transparent); }
 
 /* status pill: icon + word; color never carries meaning alone */
@@ -913,6 +913,31 @@ html.dash-on .dash-financials .cash { grid-template-columns: minmax(0, 0.9fr) mi
 .reorder-row:first-child { border-top: 0; padding-top: 0; }
 .reorder-row:last-child { padding-bottom: 0; }
 .reorder-row .grow { flex: 1; min-width: 0; }
+.reorder-row .row-ctl { display: flex; align-items: center; gap: 8px; flex: none; }
+.tag-pick {
+  min-height: 44px; padding: 0 6px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--ink); font: inherit; font-size: 16px; /* 16px stops iOS zoom */ cursor: pointer;
+}
+.del-btn { color: var(--down-text); display: inline-grid; place-items: center; }
+.del-btn.undo { padding: 0; font-size: 12.5px; font-weight: 650; color: var(--ink); }
+.del-slot { visibility: hidden; }
+.reorder-row.is-archived .sym { color: var(--muted); }
+.reorder-row.gone .sym { text-decoration: line-through; }
+.reorder-row.gone .reorder-name { color: var(--down-text); }
+/* phone: the controls drop to their own line under the name */
+@media (max-width: 639px) {
+  .reorder-row { flex-wrap: wrap; row-gap: 6px; }
+  .reorder-row .grow { flex: 1 1 0; }
+  .reorder-row .row-ctl { flex-basis: 100%; padding-left: calc(1.4em + 10px); }
+  .reorder-row .del-slot { display: none; }
+  .reorder-row .tag-pick { flex: 1; min-width: 0; }
+}
+@media (min-width: 640px) { .tag-pick { font-size: 14px; width: 9.5em; } }
+/* archived panel on home, and the archive / snapshot-gap note on a ticker page */
+.arch-panel { margin-top: 12px; padding-top: 12px; padding-bottom: 12px; }
+.arch-panel summary { cursor: pointer; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.arch-panel .arch-list { margin-top: 10px; }
+.arch-note { margin: 10px 0 12px; font-size: 13.5px; line-height: 1.5; }
 .reorder-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reorder-num { min-width: 1.4em; text-align: right; color: var(--muted); font-size: 13px; }
 .reorder-row .grip { display: none; color: var(--muted); font-size: 18px; }

@@ -12,21 +12,21 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "refresh, add, remove, tag or reorder"
+        description: "refresh, add, remove, tag or edit"
         type: choice
-        options: [refresh, add, remove, tag, reorder]
+        options: [refresh, add, remove, tag, edit]
         default: refresh
       ticker:
         description: "Ticker symbol (for add / remove / tag)"
         required: false
         default: ""
       tag:
-        description: "owned, watching or researching"
+        description: "watching, researching or archived"
         type: choice
-        options: [researching, watching, owned]
+        options: [researching, watching, archived]
         default: researching
       order:
-        description: "For reorder: comma-separated tickers, top first"
+        description: "For edit: SYM:tag,SYM:tag,-SYM in the new order (-SYM deletes an archived ticker)"
         required: false
         default: ""
       request_id:

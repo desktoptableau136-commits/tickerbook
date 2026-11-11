@@ -1135,6 +1135,25 @@ export function drawdowns(dates, close) {
   };
 }
 
+// ------------------------------------------------------------------ snapshot gaps
+// Stretches of more than a week with no daily snapshot (weekends and holidays are shorter),
+// e.g. while the ticker was archived or updates were failing. Several archive/unarchive
+// cycles simply give several gaps.
+export function snapshotGaps(hist, minDays = 8) {
+  const out = [];
+  for (let i = 1; i < (hist?.length || 0); i++) {
+    const last = hist[i - 1].date, next = hist[i].date;
+    const days = Math.round((new Date(next) - new Date(last)) / 864e5);
+    if (days >= minDays) out.push({ last, next, days: days - 1 });
+  }
+  return out;
+}
+
+export function gapText(g) {
+  const f = (s) => date(s, { month: "short", day: "numeric", year: "numeric" });
+  return `${g.days} days (${f(g.last)} → ${f(g.next)})`;
+}
+
 // ------------------------------------------------------------------ benchmarks
 // The price chart compares against funds (dividends folded in, like every ticker's prices),
 // not the indexes, which leave dividends out. Colors stay fixed per benchmark.

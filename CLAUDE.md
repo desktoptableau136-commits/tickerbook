@@ -13,7 +13,7 @@ Tickerbook: a personal, mobile-first stock watchlist dashboard for a long-term i
 ```powershell
 python -m venv .venv; .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python scripts\fetch.py                                   # refresh every ticker in watchlist.json
-.venv\Scripts\python scripts\fetch.py --action add --ticker NVDA --tag researching   # also: remove, tag, reorder --order A,B,C
+.venv\Scripts\python scripts\fetch.py --action add --ticker NVDA --tag researching   # also: remove, tag, edit --order "A:watching,B:archived,-C"
 .venv\Scripts\python -m http.server 8765                                # serve; open http://127.0.0.1:8765
 gh workflow run update.yml -f action=refresh                            # refresh the live data (a push only deploys)
 ```

@@ -159,9 +159,12 @@ window.addEventListener("hashchange", () => { route(); window.scrollTo(0, 0); })
 
 // ================================================================ home
 function renderHome() {
-  const all = tickers();
+  const every = tickers();
+  // archived tickers are paused: they sit in a collapsed panel and stay out of everything else here
+  const all = every.filter((t) => t.tag !== "archived"), archived = every.filter((t) => t.tag === "archived");
   const counts = { all: all.length };
   for (const t of all) counts[t.tag] = (counts[t.tag] || 0) + 1;
+  if (!["all", "watching", "researching"].includes(state.filter)) state.filter = "all";
   const shown = state.filter === "all" ? all : all.filter((t) => t.tag === state.filter);
 
   const hero = h("div", { class: "home-hero" },
@@ -171,16 +174,31 @@ function renderHome() {
     GH.connected() ? h("button", { class: "btn primary", type: "button", on: { click: () => openResearch() } }, "＋ Research a ticker") : null);
 
   const chips = h("div", { class: "chips", role: "group", "aria-label": "Filter by tag" },
-    ["all", "owned", "watching", "researching"].filter((f) => f === "all" || counts[f]).map((f) =>
+    ["all", "watching", "researching"].filter((f) => f === "all" || counts[f]).map((f) =>
       h("button", { class: "chip", type: "button", "aria-pressed": String(state.filter === f), on: { click: () => { state.filter = f; pref("filter", f); route(); } } },
         `${f === "all" ? "All" : f[0].toUpperCase() + f.slice(1)} · ${counts[f] || 0}`)));
 
   const grid = h("div", { class: "grid", style: "margin-top:12px" }, shown.map(({ d, tag }) => tickerCard(d, tag)));
   if (!shown.length) grid.append(h("div", { class: "empty card" }, "Nothing here yet."));
-  const reorderBtn = GH.connected() && all.length > 1
-    ? h("button", { class: "btn sm", type: "button", on: { click: () => { view.replaceChildren(); renderReorder(route); window.scrollTo(0, 0); } } }, "Reorder") : null;
+  const editBtn = GH.connected() && every.length
+    ? h("button", { class: "btn sm", type: "button", on: { click: () => { view.replaceChildren(); renderEdit(route); window.scrollTo(0, 0); } } }, "Edit list") : null;
 
-  view.append(hero, h("div", { class: "home-bar" }, chips, reorderBtn), grid);
+  view.append(hero, h("div", { class: "home-bar" }, chips, editBtn), grid);
+  if (archived.length) {
+    // the daily refresh still checks archived prices, so a big move since archiving stands out
+    const moved = archived.filter((t) => isNum(t.sinceArchived?.move)).sort((a, b) => Math.abs(b.sinceArchived.move) - Math.abs(a.sinceArchived.move))[0];
+    const mv = (m) => h("span", { class: signClass(m) }, `${arrow(m)} ${A.pct(m, { sign: true })}`);
+    const panel = h("details", { class: "card arch-panel", ...(pref("archOpen") === "1" ? { open: true } : {}), on: { toggle: (e) => pref("archOpen", e.currentTarget.open ? "1" : "0") } },
+      h("summary", {}, h("b", {}, `Archived · ${archived.length}`),
+        h("span", { class: "muted small" }, "Paused: not refreshed, saved history kept"),
+        moved && Math.abs(moved.sinceArchived.move) >= 0.005 ? h("span", { class: "small" }, "Biggest move since archiving: ", h("b", {}, moved.symbol), " ", mv(moved.sinceArchived.move)) : null),
+      h("div", { class: "arch-list" }, archived.map(({ d, archivedOn, archivedPrice, sinceArchived: sa }) => h("a", { class: "list-row", href: `#/t/${d.symbol}`, style: "color:inherit;text-decoration:none" },
+        h("div", { class: "grow" }, h("div", {}, h("b", {}, d.symbol), " ", h("span", { class: "muted" }, A.shortName(d))),
+          h("div", { class: "muted small" }, `${archivedOn ? `Archived ${A.date(archivedOn)}` : "Archived"} at ${A.price(isNum(archivedPrice) ? archivedPrice : d.quote.price)}`,
+            sa ? ` · now ${A.price(sa.price)} (${A.date(sa.date, { month: "short", day: "numeric" })})` : "")),
+        sa && isNum(sa.move) ? h("div", { class: "small", style: "text-align:right" }, h("b", { class: "tnum" }, mv(sa.move)), h("div", { class: "muted" }, "since archived")) : null))));
+    view.append(panel);
+  }
 
   if (!GH.connected()) {
     view.append(h("div", { class: "card connect-hint", style: "margin-top:16px" },
@@ -230,31 +248,52 @@ function renderHome() {
   view.append(h("p", { class: "disclaimer" }, "For learning and research only. Not financial advice. Data from Yahoo Finance, may be delayed or incomplete."));
 }
 
-// Reorder mode: ↑/↓ buttons everywhere, plus drag-and-drop with a mouse. Saving runs the
-// "reorder" workflow, so watchlist.json (and every device) gets the new order.
-function renderReorder(done) {
-  const all = tickers(), orig = all.map((t) => t.symbol), info = Object.fromEntries(all.map((t) => [t.symbol, t]));
-  let order = [...orig], dragEl = null;
-  const list = h("ol", { class: "reorder-list" });
+// Edit list: reorder (↑/↓, or drag with a mouse), retag, archive, and delete archived tickers.
+// Nothing changes until Save, which sends everything as one "edit" workflow run, so
+// watchlist.json (and every device) updates together.
+const TAG_CHOICES = [["watching", "Watching"], ["researching", "Researching"], ["archived", "Archived"]];
+const TRASH = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
+function renderEdit(done) {
+  const all = tickers(), info = Object.fromEntries(all.map((t) => [t.symbol, t]));
+  const tags = Object.fromEntries(all.map((t) => [t.symbol, t.tag])), del = new Set();
+  let order = all.map((t) => t.symbol), dragEl = null;
+  const spec = () => [...order.filter((x) => !del.has(x)).map((x) => `${x}:${tags[x]}`), ...[...del].map((x) => `-${x}`)].join(",");
+  const orig = spec();
+  const list = h("ol", { class: "reorder-list" }), warn = h("div", {});
   const save = h("button", { class: "btn primary", type: "button", on: { click: () => {
     if (state.task?.running) return openTaskSheet();
-    // show the new order right away; loadAll() after the run reads it back from the repo
-    const pos = new Map(order.map((s, i) => [s, i]));
-    state.index.tickers.sort((a, b) => (pos.get(a.symbol) ?? 1e9) - (pos.get(b.symbol) ?? 1e9));
+    // show the result right away; loadAll() after the run reads the real thing back from the repo
+    const pos = new Map(order.map((x, i) => [x, i])), today = new Date().toISOString().slice(0, 10);
+    state.index.tickers = state.index.tickers.filter((t) => !del.has(t.symbol))
+      .map((t) => ({ ...t, tag: tags[t.symbol] ?? t.tag, archivedOn: tags[t.symbol] === "archived" ? t.archivedOn || today : undefined }))
+      .sort((a, b) => (pos.get(a.symbol) ?? 1e9) - (pos.get(b.symbol) ?? 1e9));
     done();
-    startTask({ action: "reorder", order: order.join(","), title: "Saving your order" });
-  } } }, "Save order");
+    startTask({ action: "edit", order: spec(), title: "Saving your list" });
+  } } }, "Save");
   const move = (i, step) => {
     const j = i + step;
     if (j < 0 || j >= order.length) return;
     [order[i], order[j]] = [order[j], order[i]];
-    draw(order[j], step < 0 ? "up" : "down");
+    draw(order[j], `[data-dir="${step < 0 ? "up" : "down"}"]`);
   };
-  const draw = (focusSym, dir) => {
-    save.disabled = order.join() === orig.join();
+  const draw = (focusSym, focusSel) => {
+    save.disabled = spec() === orig;
     list.replaceChildren(...order.map((sym, i) => {
-      const { d, tag } = info[sym];
-      return h("li", { class: "reorder-row", "data-sym": sym, ...(canHover.matches ? { draggable: "true" } : {}), on: {
+      const { d } = info[sym], gone = del.has(sym), arch = tags[sym] === "archived", wasArch = info[sym].tag === "archived";
+      const note = gone ? "Will be deleted, along with its saved history"
+        : wasArch && !arch ? "Comes back and refreshes when you save"
+        : arch && !wasArch ? "Will be archived: kept, but not refreshed"
+        : d.name || "";
+      const pick = h("select", { class: "tag-pick", "aria-label": `Tag for ${sym}`, disabled: gone, on: { change: (e) => {
+        tags[sym] = e.target.value;
+        if (tags[sym] !== "archived") del.delete(sym);
+        draw(sym, ".tag-pick");
+      } } }, TAG_CHOICES.map(([k, l]) => h("option", { value: k, ...(k === tags[sym] ? { selected: true } : {}) }, l)));
+      // only archived tickers can be deleted, so a slip can't erase an active one's history
+      const delBtn = arch ? h("button", { class: `move-btn del-btn${gone ? " undo" : ""}`, type: "button", "aria-label": gone ? `Keep ${sym}` : `Delete ${sym}`, title: gone ? "Undo" : "Delete",
+        ...(gone ? {} : { html: TRASH }), on: { click: () => { gone ? del.delete(sym) : del.add(sym); draw(sym, ".del-btn"); } } }, gone ? "Undo" : null)
+        : h("span", { class: "move-btn del-slot", "aria-hidden": "true" }); // keeps the columns lined up
+      return h("li", { class: `reorder-row${gone ? " gone" : ""}${arch ? " is-archived" : ""}`, "data-sym": sym, ...(canHover.matches ? { draggable: "true" } : {}), on: {
         dragstart: (e) => { dragEl = e.currentTarget; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", sym); dragEl.classList.add("dragging"); },
         dragover: (e) => {
           if (!dragEl) return;
@@ -269,20 +308,24 @@ function renderReorder(done) {
       } },
         h("span", { class: "grip", "aria-hidden": "true" }, "⠿"),
         h("span", { class: "reorder-num tnum", "aria-hidden": "true" }, String(i + 1)),
-        h("div", { class: "grow" }, h("b", {}, sym), h("span", { class: `tag mini ${tag}` }, tag), h("div", { class: "muted small reorder-name" }, d.name || "")),
-        h("button", { class: "move-btn", type: "button", "data-dir": "up", "aria-label": `Move ${sym} up`, disabled: i === 0, on: { click: () => move(i, -1) } }, "↑"),
-        h("button", { class: "move-btn", type: "button", "data-dir": "down", "aria-label": `Move ${sym} down`, disabled: i === order.length - 1, on: { click: () => move(i, 1) } }, "↓"));
+        h("div", { class: "grow" }, h("b", { class: "sym" }, sym), h("div", { class: "muted small reorder-name" }, note)),
+        h("div", { class: "row-ctl" }, pick, delBtn,
+          h("button", { class: "move-btn", type: "button", "data-dir": "up", "aria-label": `Move ${sym} up`, disabled: i === 0, on: { click: () => move(i, -1) } }, "↑"),
+          h("button", { class: "move-btn", type: "button", "data-dir": "down", "aria-label": `Move ${sym} down`, disabled: i === order.length - 1, on: { click: () => move(i, 1) } }, "↓")));
     }));
+    warn.replaceChildren(del.size ? h("div", { class: "notice bad", style: "margin-top:12px" },
+      `Deleting erases ${[...del].join(", ")} and ${del.size === 1 ? "its" : "their"} saved daily snapshots (past P/E and analyst estimates), which can't be rebuilt. Archiving keeps them.`) : "");
     if (focusSym) {
       const row = list.querySelector(`[data-sym="${focusSym}"]`);
-      (row?.querySelector(`[data-dir="${dir}"]:not(:disabled)`) || row?.querySelector(".move-btn:not(:disabled)"))?.focus();
+      (row?.querySelector(`${focusSel}:not(:disabled)`) || row?.querySelector(".move-btn:not(:disabled)"))?.focus();
     }
   };
   draw();
   view.append(
-    h("div", { class: "home-hero" }, h("div", {}, h("h1", {}, "Reorder your watchlist"),
-      h("div", { class: "muted small" }, "Use the arrows", h("span", { class: "only-hover" }, ", or drag a row"), ". Saving takes about a minute and updates every device."))),
-    card(null, {}, list),
+    h("div", { class: "home-hero" }, h("div", {}, h("h1", {}, "Edit your watchlist"),
+      h("div", { class: "muted small" }, "Reorder with the arrows", h("span", { class: "only-hover" }, " or by dragging a row"),
+        ". Archived tickers move to a collapsed panel and stop refreshing, but keep their saved history. Only archived tickers can be deleted. Saving takes about a minute and updates every device."))),
+    card(null, {}, list), warn,
     h("div", { class: "reorder-actions" }, h("button", { class: "btn", type: "button", on: { click: () => done() } }, "Cancel"), save));
 }
 
@@ -346,10 +389,34 @@ function renderTicker(sym, tab) {
     h("span", { class: "tabs-note" }, "Learning tool · not financial advice"));
 
   const body = h("div", {});
-  view.append(head, changesBanner(d) || "", tabBar, body);
+  view.append(head, archiveNote(d, sym), changesBanner(d) || "", tabBar, body);
   const fn = { summary: tabSummary, earnings: tabEarnings, financials: tabFinancials, valuation: tabValuation, peers: tabPeers, analysts: tabAnalysts, news: tabNews, holdings: tabHoldings }[tab];
   fn(d, body);
   body.append(h("p", { class: "disclaimer" }, "For learning and research only. Not financial advice."));
+}
+
+// Archived: when and how stale. Gaps in our own daily snapshots (several archive/unarchive
+// cycles give several gaps), since they leave holes in the P/E and estimate history.
+function archiveNote(d, sym) {
+  const t = state.index.tickers.find((x) => x.symbol === sym);
+  const gaps = A.snapshotGaps(d.history);
+  const parts = [];
+  if (t?.tag === "archived") {
+    const on = t.archivedOn || d.archivedOn;
+    const sa = t.sinceArchived;
+    parts.push(h("span", {}, h("b", {}, "Archived"), on ? ` on ${A.date(on)}` : "", isNum(t.archivedPrice) ? ` at ${A.price(t.archivedPrice)}` : "",
+      sa && isNum(sa.move) ? [`; now ${A.price(sa.price)} (${A.date(sa.date)}), `, h("b", { class: signClass(sa.move) }, `${arrow(sa.move)} ${A.pct(sa.move, { sign: true })}`), " since"] : "",
+      `. It isn't fully refreshed while archived (only its price is checked), so everything else here is as of ${A.date(d.quote.marketTime || d.updated)}. Its saved history is kept.`,
+      GH.connected() ? " " : "", GH.connected() ? h("button", { class: "linkish", type: "button", on: { click: () => openTickerMenu(d) } }, "Unarchive") : null));
+  }
+  if (gaps.length) {
+    // listed inline (not hover-only) so it reads on a phone; the longest few if there are many
+    const top = [...gaps].sort((a, b) => b.days - a.days).slice(0, 3).sort((a, b) => a.last.localeCompare(b.last));
+    parts.push(h("span", {}, h("b", {}, gaps.length === 1 ? "Gap in daily snapshots: " : `${gaps.length} gaps in daily snapshots: `),
+      top.map((g) => A.gapText(g)).join(" · "), gaps.length > 3 ? ` · and ${gaps.length - 3} shorter` : "",
+      ". The P/E and analyst-estimate history has holes there; Yahoo doesn't keep past values, so they can't be filled in."));
+  }
+  return parts.length ? h("div", { class: "notice arch-note" }, ...parts.flatMap((x, i) => (i ? [h("br"), x] : [x]))) : "";
 }
 
 // A tab's grid. On laptops (html.dash-on) CSS turns it into a fixed-height, one-screen layout.
@@ -1055,8 +1122,11 @@ function tabValuation(d, body) {
   const hist = d.history || [];
   if (hist.length >= 5) {
     const c = h("div", {});
-    g.append(card("Forward P/E over time", { area: "hist", term: "forwardPE", sub: "From this dashboard's daily snapshots" }, c));
-    requestAnimationFrame(() => lineChart(c, { dates: hist.map((x) => x.date), series: [{ name: "Forward P/E", values: hist.map((x) => x.forwardPE), color: "var(--series-1)" }],
+    const gaps = A.snapshotGaps(hist), gapAt = new Set(gaps.map((x) => x.next));
+    // an empty point before each gap's far side breaks the line instead of drawing across the hole
+    const pts = hist.flatMap((x) => (gapAt.has(x.date) ? [{ date: x.date, forwardPE: null }, x] : [x]));
+    g.append(card("Forward P/E over time", { area: "hist", term: "forwardPE", sub: gaps.length ? `From this dashboard's daily snapshots · line breaks at ${gaps.length === 1 ? "a gap" : `${gaps.length} gaps`}` : "From this dashboard's daily snapshots" }, c));
+    requestAnimationFrame(() => lineChart(c, { dates: pts.map((x) => x.date), series: [{ name: "Forward P/E", values: pts.map((x) => x.forwardPE), color: "var(--series-1)" }],
       yFormat: (x) => `${x.toFixed(1)}×`, xFormat: (s) => A.date(s, { month: "short", day: "numeric" }), tipTitle: (s) => A.date(s), height: 180, fill: true, area: false }));
   } else {
     g.append(card("Valuation history", { area: "hist", sub: "Building up" },
@@ -1457,7 +1527,7 @@ function openResearch(prefill = "") {
     const input = h("input", { id: "r-ticker", value: prefill, placeholder: "e.g. NVDA", autocapitalize: "characters", autocomplete: "off", spellcheck: "false", maxlength: 15,
       style: "text-transform:uppercase;font-weight:650;letter-spacing:.03em" });
     const seg = h("div", { class: "seg", role: "group", "aria-label": "Tag" },
-      ["researching", "watching", "owned"].map((t) => h("button", { type: "button", "aria-pressed": String(t === tag),
+      ["researching", "watching"].map((t) => h("button", { type: "button", "aria-pressed": String(t === tag),
         on: { click: (e) => { tag = t; seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b === e.currentTarget))); } } }, t[0].toUpperCase() + t.slice(1))));
     const err = h("div", {});
     const form = h("form", { on: { submit: (e) => {
@@ -1478,15 +1548,20 @@ function openTickerMenu(d) {
   const cur = state.index.tickers.find((t) => t.symbol === d.symbol)?.tag;
   openSheet((s) => s.append(sheetHead(d.symbol),
     h("h4", {}, "Tag"),
-    h("div", { class: "seg", role: "group" }, ["owned", "watching", "researching"].map((t) =>
-      h("button", { type: "button", "aria-pressed": String(t === cur), on: { click: () => { if (t !== cur) startTask({ action: "tag", ticker: d.symbol, tag: t, title: `Tagging ${d.symbol} as ${t}` }); } } }, t[0].toUpperCase() + t.slice(1)))),
+    h("div", { class: "seg", role: "group" }, ["watching", "researching", "archived"].map((t) =>
+      h("button", { type: "button", "aria-pressed": String(t === cur), on: { click: () => { if (t !== cur) startTask({ action: "tag", ticker: d.symbol, tag: t,
+        title: t === "archived" ? `Archiving ${d.symbol}` : cur === "archived" ? `Bringing back ${d.symbol}` : `Tagging ${d.symbol} as ${t}` }); } } }, t[0].toUpperCase() + t.slice(1)))),
+    h("p", { class: "muted small", style: "margin:8px 0 0" }, cur === "archived"
+      ? "Switching it back refreshes it right away."
+      : "Archived tickers stop refreshing but keep their saved history."),
     h("h4", {}, "Data"),
     h("button", { class: "btn block", type: "button", on: { click: () => startTask({ action: "add", ticker: d.symbol, tag: cur, title: `Refreshing ${d.symbol}` }) } }, `Refresh ${d.symbol} now`),
-    h("div", { style: "height:8px" }),
-    h("button", { class: "btn block danger", type: "button", on: { click: (e) => {
-      if (e.currentTarget.dataset.confirm) startTask({ action: "remove", ticker: d.symbol, title: `Removing ${d.symbol}` });
-      else { e.currentTarget.dataset.confirm = "1"; e.currentTarget.textContent = `Tap again to remove ${d.symbol}`; }
-    } } }, "Remove from watchlist")));
+    // deleting erases our own snapshot history, so it's only offered once a ticker is archived
+    cur === "archived" ? h("div", { style: "height:8px" }) : null,
+    cur === "archived" ? h("button", { class: "btn block danger", type: "button", on: { click: (e) => {
+      if (e.currentTarget.dataset.confirm) startTask({ action: "remove", ticker: d.symbol, title: `Deleting ${d.symbol}` });
+      else { e.currentTarget.dataset.confirm = "1"; e.currentTarget.textContent = `Tap again: erases ${d.symbol} and its saved history`; }
+    } } }, "Delete for good") : null));
 }
 
 function startTask({ action, ticker = "", tag = "researching", order = "", title }) {

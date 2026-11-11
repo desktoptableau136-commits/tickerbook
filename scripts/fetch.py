@@ -4,8 +4,11 @@ Usage:
   python scripts/fetch.py                          # refresh everything on the watchlist
   python scripts/fetch.py --action add --ticker NVDA --tag researching
   python scripts/fetch.py --action remove --ticker NVDA
-  python scripts/fetch.py --action tag --ticker NVDA --tag owned
-  python scripts/fetch.py --action reorder --order GOOG,NVDA,MSFT   # no market data fetched
+  python scripts/fetch.py --action tag --ticker NVDA --tag archived
+  python scripts/fetch.py --action edit --order "GOOG:watching,NVDA:researching,TGT:archived,-VZ"
+      (the "Edit list" save: new order + tags; "-SYM" deletes an archived ticker)
+
+Archived tickers are skipped by the daily refresh but keep their file and snapshot history.
 
 Writes:
   data/<SYMBOL>.json   one file per ticker (all tabs read from this)
@@ -36,7 +39,7 @@ import yfinance as yf
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 WATCHLIST = ROOT / "watchlist.json"
-TAGS = {"owned", "watching", "researching"}
+TAGS = {"watching", "researching", "archived"}
 TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-=^]{0,14}$")
 HISTORY_KEEP = 1500  # daily snapshots kept per ticker (~6 years of trading days)
 PEER_MAX = 8  # industry peers used for the "priced like its peers" valuation
@@ -767,21 +770,102 @@ def write_json(path: Path, obj):
 
 
 def load_watchlist():
-    return json.loads(WATCHLIST.read_text(encoding="utf-8"))
+    wl = json.loads(WATCHLIST.read_text(encoding="utf-8"))
+    for t in wl["tickers"]:  # "owned" was retired; anything unknown becomes researching
+        if t.get("tag") not in TAGS:
+            t["tag"] = "watching" if t.get("tag") == "owned" else "researching"
+    return wl
 
 
 def save_watchlist(wl):
     WATCHLIST.write_text(json.dumps(wl, indent=2) + "\n", encoding="utf-8")
 
 
-def write_index(wl, touch=True):
-    """touch=False keeps the old "updated" time (reordering doesn't refresh any prices)."""
-    updated = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if not touch:
+def today():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+ARCH_KEYS = ("archivedOn", "archivedPrice", "archivedPriceDate")
+
+
+def set_tag(entry, tag):
+    """Change a watchlist entry's tag, stamping or clearing the archive date and the price it
+    was archived at (the last close we have). Returns True when the ticker comes back out of
+    the archive (so it needs a refresh)."""
+    was = entry["tag"] == "archived"
+    entry["tag"] = tag
+    if tag == "archived" and not was:
+        entry["archivedOn"] = today()
         try:
-            updated = json.loads((DATA / "index.json").read_text(encoding="utf-8")).get("updated") or updated
+            q = json.loads((DATA / f"{entry['symbol']}.json").read_text(encoding="utf-8"))["quote"]
+            entry["archivedPrice"] = q["price"]
+            entry["archivedPriceDate"] = (q.get("marketTime") or today())[:10]
         except Exception:
             pass
+    elif tag != "archived":
+        for k in ARCH_KEYS:
+            entry.pop(k, None)
+    return was and tag != "archived"
+
+
+def archived_moves(wl):
+    """A light daily price check for archived tickers (no full fetch, no snapshot): the latest
+    close and the move since the archive-day close. The move uses split/dividend-adjusted
+    closes, so a split while archived doesn't look like a crash."""
+    out = {}
+    for t in wl["tickers"]:
+        if t["tag"] != "archived" or not t.get("archivedPriceDate"):
+            continue
+        print(f"-> {t['symbol']} (archived: price check only)")
+        try:
+            h = retry(lambda: yf.Ticker(t["symbol"]).history(start=t["archivedPriceDate"], interval="1d", auto_adjust=True))["Close"].dropna()
+            if len(h):
+                out[t["symbol"]] = {"price": round(float(h.iloc[-1]), 2), "date": h.index[-1].strftime("%Y-%m-%d"),
+                                    "move": round(float(h.iloc[-1] / h.iloc[0] - 1), 4)}
+        except Exception as e:
+            print(f"   FAILED: {e}")
+    return out
+
+
+def sync_data_file(entry):
+    """Copy the tag and archive date into data/<SYM>.json without refetching anything."""
+    path = DATA / f"{entry['symbol']}.json"
+    if not path.exists():
+        return
+    j = json.loads(path.read_text(encoding="utf-8"))
+    j["tag"] = entry["tag"]
+    if entry.get("archivedOn"):
+        j["archivedOn"] = entry["archivedOn"]
+    else:
+        j.pop("archivedOn", None)
+    write_json(path, j)
+
+
+def build_entry(entry):
+    d = build(entry["symbol"], entry["tag"])
+    if entry.get("archivedOn"):
+        d["archivedOn"] = entry["archivedOn"]
+    return d
+
+
+def write_index(wl, touch=True, moves=None):
+    """touch=False keeps the old "updated" time (editing the list doesn't refresh prices).
+    moves: archived_moves() from a daily refresh; otherwise the last ones are carried over."""
+    updated = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        old = json.loads((DATA / "index.json").read_text(encoding="utf-8"))
+    except Exception:
+        old = {}
+    if not touch:
+        updated = old.get("updated") or updated
+    # keep the last price check unless the ticker was re-archived since (new base price)
+    old_since = {t["symbol"]: t["sinceArchived"] for t in old.get("tickers", []) if t.get("sinceArchived")}
+    old_on = {t["symbol"]: t.get("archivedOn") for t in old.get("tickers", [])}
+    def since(t):
+        if t["tag"] != "archived":
+            return {}
+        m = moves.get(t["symbol"]) if moves is not None else (old_since.get(t["symbol"]) if old_on.get(t["symbol"]) == t.get("archivedOn") else None)
+        return {"sinceArchived": m} if m else {}
     names = {}
     for t in wl["tickers"]:
         p = DATA / f"{t['symbol']}.json"
@@ -790,16 +874,17 @@ def write_index(wl, touch=True):
             names[t["symbol"]] = {"name": j.get("name"), "type": j.get("type")}
     write_json(DATA / "index.json", {
         "updated": updated,
-        "tickers": [{"symbol": t["symbol"], "tag": t["tag"], **names.get(t["symbol"], {})} for t in wl["tickers"]],
+        "tickers": [{"symbol": t["symbol"], "tag": t["tag"], **{k: t[k] for k in ARCH_KEYS if t.get(k) is not None},
+                     **since(t), **names.get(t["symbol"], {})} for t in wl["tickers"]],
     })
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--action", default="refresh", choices=["refresh", "add", "remove", "tag", "reorder"])
+    ap.add_argument("--action", default="refresh", choices=["refresh", "add", "remove", "tag", "edit"])
     ap.add_argument("--ticker", default="")
     ap.add_argument("--tag", default="researching")
-    ap.add_argument("--order", default="", help="reorder: comma-separated symbols, first = top")
+    ap.add_argument("--order", default="", help='edit: "SYM:tag,SYM:tag,-SYM" in the new order; -SYM deletes')
     ap.add_argument("--request-id", default="")
     args = ap.parse_args()
 
@@ -816,17 +901,56 @@ def main():
         })
         print(("OK: " if ok else "PROBLEM: ") + message)
 
-    if args.action == "reorder":
-        want = [s.strip().upper() for s in args.order.split(",") if s.strip()]
-        if not want or not all(TICKER_RE.match(s) for s in want):
-            report(False, "That order didn't look like a list of ticker symbols.")
+    def refresh_from_archive(entries):
+        failed = []
+        for e in entries:
+            print(f"-> {e['symbol']} (back from the archive)")
+            try:
+                write_json(DATA / f"{e['symbol']}.json", build_entry(e))
+            except Exception as ex:
+                print(f"   FAILED: {ex}")
+                failed.append(e["symbol"])
+        return failed
+
+    if args.action == "edit":
+        keep, drop = [], []
+        for part in (x.strip() for x in args.order.split(",")):
+            if part.startswith("-"):
+                drop.append(part[1:].upper())
+            elif part:
+                sym, _, tg = part.partition(":")
+                keep.append((sym.upper(), tg.lower()))
+        if not (keep or drop) or not all(TICKER_RE.match(x) for x in [s for s, _ in keep] + drop) or any(tg not in TAGS for _, tg in keep):
+            report(False, "That list of changes didn't look right.")
             return
-        pos = {s: i for i, s in enumerate(want)}
+        by = {t["symbol"]: t for t in wl["tickers"]}
+        deleted, kept_active = [], []
+        for x in drop:
+            if x in by and by[x]["tag"] == "archived":  # only archived tickers can be deleted
+                wl["tickers"].remove(by[x])
+                (DATA / f"{x}.json").unlink(missing_ok=True)
+                deleted.append(x)
+            elif x in by:
+                kept_active.append(x)
+        back = [by[x] for x, tg in keep if x in by and set_tag(by[x], tg)]
+        pos = {x: n for n, (x, _) in enumerate(keep)}
         # anything not in the request (say, added meanwhile) keeps its relative place at the end
-        wl["tickers"].sort(key=lambda t: pos.get(t["symbol"], len(want)))
+        wl["tickers"].sort(key=lambda t: pos.get(t["symbol"], len(pos)))
         save_watchlist(wl)
+        for t in wl["tickers"]:
+            sync_data_file(t)
+        failed = refresh_from_archive(back)
         write_index(wl, touch=False)
-        report(True, "Saved your watchlist order.")
+        msg = ["Saved your list."]
+        if deleted:
+            msg.append(f"Deleted {', '.join(deleted)}.")
+        if kept_active:
+            msg.append(f"Didn't delete {', '.join(kept_active)}: only archived tickers can be deleted.")
+        if back and len(failed) < len(back):
+            msg.append(f"Refreshed {', '.join(e['symbol'] for e in back if e['symbol'] not in failed)}.")
+        if failed:
+            msg.append(f"Couldn't refresh {', '.join(failed)} yet (Yahoo may be busy). It catches up on the next daily update.")
+        report(True, " ".join(msg))
         return
 
     if args.action != "refresh":
@@ -845,37 +969,39 @@ def main():
             if not existing:
                 report(False, f"{symbol} isn't on the watchlist.")
                 return
-            existing["tag"] = tag
+            back = set_tag(existing, tag)
             save_watchlist(wl)
-            p = DATA / f"{symbol}.json"
-            if p.exists():
-                j = json.loads(p.read_text(encoding="utf-8")); j["tag"] = tag; write_json(p, j)
-            write_index(wl)
-            report(True, f"{symbol} is now tagged '{tag}'.")
+            sync_data_file(existing)
+            failed = refresh_from_archive([existing] if back else [])
+            write_index(wl, touch=False)
+            report(True, f"{symbol} is now {'archived' if tag == 'archived' else f'tagged {tag}'}."
+                   + (" Couldn't refresh it yet; it catches up on the next daily update." if failed else ""))
             return
         # add: fetch first so a typo never lands on the watchlist
         print(f"-> {symbol} (new)")
+        entry = existing or {"symbol": symbol, "tag": tag}
         try:
-            d = build(symbol, existing["tag"] if existing else tag)
+            d = build_entry(entry)
         except Exception as e:
             report(False, f"Couldn't load {symbol}: {e}")
             return
         write_json(DATA / f"{symbol}.json", d)
         if not existing:
-            wl["tickers"].append({"symbol": symbol, "tag": tag})
+            wl["tickers"].append(entry)
             save_watchlist(wl)
         targets = [symbol]
     else:
-        targets = [t["symbol"] for t in wl["tickers"]]
+        # archived tickers are paused: their files and snapshot history stay, but they aren't refetched
+        targets = [t["symbol"] for t in wl["tickers"] if t["tag"] != "archived"]
 
-    tags = {t["symbol"]: t["tag"] for t in wl["tickers"]}
+    by = {t["symbol"]: t for t in wl["tickers"]}
     failures = []
     for s in targets:
         if args.action == "add" and s == symbol:
             continue  # already built above
         print(f"-> {s}")
         try:
-            write_json(DATA / f"{s}.json", build(s, tags[s]))
+            write_json(DATA / f"{s}.json", build_entry(by[s]))
         except Exception as e:
             print(f"   FAILED: {e}")
             failures.append(s)
@@ -899,7 +1025,7 @@ def main():
     if benches:
         write_json(DATA / "_bench.json", {"benches": benches})
 
-    write_index(wl)
+    write_index(wl, moves=archived_moves(wl) if args.action == "refresh" else None)
 
     if args.action == "add":
         report(True, f"Added {symbol} to the watchlist.")
