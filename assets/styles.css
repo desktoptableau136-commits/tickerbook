@@ -852,3 +852,88 @@ html.dash-on .dash-valuation .method[open] { grid-column: 1 / -1; }
 .rec-score-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 14px; }
 .rec-math { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 12.5px; color: var(--ink-2); }
 .rec-term { display: inline-flex; align-items: center; gap: 5px; }
+
+/* ============================================================ round 6 */
+/* since you last looked */
+.changes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 10px 0 4px; padding: 9px 12px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 9%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+.changes-title { font-size: 13px; font-weight: 650; }
+.changes-list { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 auto; }
+.chg { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 550; text-decoration: none; border: 1px solid var(--border); }
+.chg:hover { border-color: var(--accent); }
+.chg .ic { font-size: 10px; font-weight: 800; }
+.chg.up .ic { color: var(--up-text); } .chg.down .ic { color: var(--down-text); }
+.chg.good .ic { color: var(--good); } .chg.bad .ic { color: var(--bad); } .chg.note .ic { color: var(--muted); }
+.changes-x { margin-left: auto; }
+.new-badge { margin-left: auto; height: 20px; padding: 0 8px; border-radius: 999px; display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 700; color: #fff; background: var(--accent); }
+
+/* price chart toggles + drops */
+.toggles { display: inline-flex; gap: 14px; flex-wrap: wrap; }
+.drop-note { margin: 8px 0 0; }
+
+/* where the cash goes */
+.cash { display: grid; gap: 16px; }
+.cash-story p { margin: 0 0 8px; font-size: 14px; }
+.cash-story p:last-child { margin-bottom: 0; }
+.cash-table { margin-top: 0; }
+@media (min-width: 960px) {
+  .cash { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+  .cash-table { grid-column: 1 / -1; }
+}
+
+/* insiders */
+.ins { display: grid; gap: 14px; }
+.ins .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 8px; }
+.ins-story p { margin: 0 0 6px; }
+.ins-list .list-row.extra { display: none; }
+.ins-list.all .list-row.extra { display: flex; }
+@media (min-width: 960px) { .ins { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 24px; } }
+
+/* laptop placement of the new cards */
+html.dash-on .dash-financials { grid-template-areas: "rev ni fcf margins" "bal table table table" "cash cash cash cash"; grid-template-rows: auto auto auto; }
+html.dash-on .dash-financials .cash .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html.dash-on .dash-analysts { grid-template-areas: "rec targets" "actions actions" "insiders insiders"; grid-template-rows: auto auto auto; }
+.changes-list { flex: 1 1 380px; }
+/* laptop: the cash card's story, bars and table side by side so it stays short */
+html.dash-on .dash-financials .cash { grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1.15fr); gap: 24px; }
+html.dash-on .dash-financials .cash-table { grid-column: auto; }
+html.dash-on .dash-financials .cash-table td, html.dash-on .dash-financials .cash-table th { padding-top: 6px; padding-bottom: 6px; }
+html.dash-on .dash-financials .cash-table { overflow-x: auto; }
+html.dash-on .dash-financials .cash { grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 1.45fr); }
+.cash-table td:first-child { white-space: normal; min-width: 110px; }
+
+/* price chart: range chips and toggles stay put; the summary text sits on its own line */
+.chart-controls .toggles { margin-left: auto; }
+.chart-controls .perf { flex: 1 1 100%; order: 3; text-align: left; margin: 0; }
+
+/* peers tab */
+.psum { display: grid; gap: 14px; }
+.psum h3 { margin: 0 0 6px; }
+.psum .spread-why { margin-top: 0; }
+.peer-names { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.peer-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+a.tag.plain { color: var(--accent); text-decoration: none; }
+.pgroup h3 { margin: 14px 0 2px; font-size: 14px; }
+.prow { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "lbl where" "me med" "str str"; gap: 2px 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.pgroup .prow:last-child { border-bottom: 0; }
+.plbl { grid-area: lbl; } .pme { grid-area: me; } .pmed { grid-area: med; text-align: right; font-size: 13px; } .pstr { grid-area: str; } .pwhere { grid-area: where; text-align: right; }
+.pmed::before { content: "peers' middle "; }
+.phead { display: none; }
+.pstrip { position: relative; height: 22px; }
+.pstrip-axis { position: absolute; left: 0; right: 0; top: 10px; height: 2px; border-radius: 2px; background: var(--border); }
+.pstrip-dot { position: absolute; top: 6px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--series-muted); box-shadow: 0 0 0 2px var(--surface); z-index: 1; }
+.pstrip-dot.me { top: 3px; width: 16px; height: 16px; margin-left: -8px; background: var(--series-1); z-index: 3; }
+.pstrip-med { position: absolute; top: 1px; width: 2px; height: 20px; margin-left: -1px; background: var(--ink); z-index: 2; }
+.peer-all > summary { cursor: pointer; }
+.peer-all .table-wrap { margin-top: 10px; }
+.peer-all tr.self td { background: var(--surface-2); }
+@media (min-width: 960px) {
+  .psum { grid-template-columns: 1fr 1fr; gap: 20px; }
+  .prow { grid-template-columns: minmax(130px, 1.1fr) 84px 84px minmax(160px, 2fr) 150px; grid-template-areas: "lbl me med str where"; gap: 12px; }
+  .pmed { text-align: right; } .pme { text-align: right; }
+  .pmed::before { content: none; }
+  .phead { display: grid; padding: 4px 0; border-bottom: 1px solid var(--border); margin-top: 6px; }
+  .phead span:nth-child(2), .phead span:nth-child(3) { text-align: right; }
+}
+html.dash-on .dash-peers { grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr); grid-template-areas: "sum list" "all all"; align-content: start; }
+html.dash-on .dash-peers .psum { grid-template-columns: 1fr; }
+html.dash-on .dash-peers .prow { padding: 5px 0; } html.dash-on .dash-peers .pgroup h3 { margin-top: 10px; }

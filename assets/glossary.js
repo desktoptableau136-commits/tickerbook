@@ -366,6 +366,34 @@ export const GLOSSARY = {
     why: "They can make one quarter's profit look terrible (or great) without saying much about the ongoing business.",
     rule: "If they show up every year, treat them as a normal cost.",
   },
+  drawdown: {
+    term: "Drawdown (drop from a peak)",
+    short: "How far the price has fallen from its previous high.",
+    what: "If a stock peaked at $100 and fell to $60, that's a 40% drawdown. It ends when the price gets back above the old high.",
+    why: "It shows how painful owning it has been at its worst, and how long you'd have had to wait to be back to even. Long-term returns only come to people who hold through these drops.",
+    rule: "Even great companies fall 30–50% at times; the S&P 500 itself dropped about 25% in 2022. A drop much bigger than the market's usually has a company-specific cause worth understanding.",
+  },
+  insiders: {
+    term: "Insider buying and selling",
+    short: "Trades in the company's stock by its own executives and directors.",
+    what: "Insiders must report every trade to the SEC (a 'Form 4') within two business days. Most of what they report is shares received as pay (grants), gifts and sales.",
+    why: "Insiders know the business best. When several of them spend their own money buying shares, it's a sign they think the stock is cheap.",
+    rule: "Buys mean more than sells. Executives sell for many ordinary reasons (taxes, diversifying, often through plans set months ahead), so selling alone is weak evidence. Several insiders buying at once is the strongest signal.",
+  },
+  capitalAllocation: {
+    term: "Capital allocation (where the cash goes)",
+    short: "What a company does with the cash its business produces.",
+    what: "The main choices: reinvest in the business, buy other companies, pay down debt, pay dividends, or buy back its own shares.",
+    why: "Over many years, these choices matter as much as how good the business is. Overpaying for acquisitions or borrowing to fund buybacks can destroy value; buying back shares when they're cheap creates it.",
+    rule: "Handing back most of the free cash flow is fine for a mature company. Paying out more than it makes, funded by borrowing, is a warning unless the debt is modest.",
+  },
+  shareCount: {
+    term: "Share count (dilution)",
+    short: "How many shares the company's ownership is split into.",
+    what: "Buybacks shrink the count; shares paid to employees, or sold to raise money, grow it. A growing count is called dilution.",
+    why: "Your slice of the profit depends on it. If profit grows 10% but the share count grows 5%, each share's profit only grows about 5%.",
+    rule: "Falling or flat is good. Rising more than about 2% a year means employees or new investors are taking a growing slice.",
+  },
 };
 
 export function term(key) {

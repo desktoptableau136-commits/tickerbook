@@ -113,6 +113,11 @@ def statement(income: pd.DataFrame, cash: pd.DataFrame, limit: int):
         "freeCashflow": row(cash, "Free Cash Flow"),
         "buybacks": row(cash, "Repurchase Of Capital Stock"),
         "dividendsPaid": row(cash, "Cash Dividends Paid", "Common Stock Dividend Paid"),
+        # where the rest of the cash went ("Where the cash goes" card)
+        "netDebtIssued": row(cash, "Net Issuance Payments Of Debt", "Net Long Term Debt Issuance"),
+        "acquisitions": row(cash, "Net Business Purchase And Sale", "Purchase Of Business"),
+        "stockIssued": row(cash, "Common Stock Issuance", "Issuance Of Capital Stock"),
+        "stockComp": row(cash, "Stock Based Compensation"),
     }
     dates = sorted({clean(c) for c in income.columns})
     out = []
@@ -212,6 +217,23 @@ def peer_info(sym: str):
             "forwardPE": clean(i.get("forwardPE")),
             "trailingPE": clean(i.get("trailingPE")),
             "evToEbitda": clean(i.get("enterpriseToEbitda")),
+            # the rest feeds the Peers tab; same fields (and units) as the ticker's own data
+            "price": clean(i.get("currentPrice") or i.get("regularMarketPrice")),
+            "peg": clean(i.get("trailingPegRatio") or i.get("pegRatio")),
+            "priceToSales": clean(i.get("priceToSalesTrailing12Months")),
+            "revenueGrowth": clean(i.get("revenueGrowth")),
+            "operatingMargin": clean(i.get("operatingMargins")),
+            "roe": clean(i.get("returnOnEquity")),
+            "debt": clean(i.get("totalDebt")),
+            "cash": clean(i.get("totalCash")),
+            "ebitda": clean(i.get("ebitda")),
+            "dividendYield": pct(i.get("dividendYield")),
+            "beta": clean(i.get("beta")),
+            "high52": clean(i.get("fiftyTwoWeekHigh")),
+            "change52": clean(i.get("52WeekChange")),
+            "targetMedian": clean(i.get("targetMedianPrice")),
+            "recommendationMean": clean(i.get("recommendationMean")),
+            "analystCount": clean(i.get("numberOfAnalystOpinions")),
         }
     return _peer_cache[sym]
 
@@ -397,6 +419,7 @@ def build_equity(tk: yf.Ticker, info: dict, prices: dict):
             "annual": statement(a_inc, a_cash, 5),
         },
         "peers": quiet(lambda: build_peers(info.get("symbol") or tk.ticker, info), None),
+        "insiders": quiet(lambda: insider_trades(tk), None),
     }
 
 
@@ -465,6 +488,64 @@ def news_items(tk: yf.Ticker):
     return out[:12]
 
 
+INSIDER_KIND = [  # Form 4 descriptions Yahoo passes through, most specific first
+    (re.compile(r"^purchase", re.I), "buy"),
+    (re.compile(r"^sale", re.I), "sell"),
+    (re.compile(r"award|grant", re.I), "award"),
+    (re.compile(r"gift", re.I), "gift"),
+    (re.compile(r"exercise|conversion|derivative", re.I), "exercise"),
+]
+NAME_SUFFIX = {"JR", "JR.", "SR", "SR.", "II", "III", "IV"}
+ENTITY_RE = re.compile(r"\b(INC|LLC|L\.?P|CORP|CO|TRUST|FUND|PARTNERS|HOLDINGS|LTD|GROUP|FOUNDATION)\b", re.I)
+
+
+def insider_name(raw: str) -> str:
+    """SEC filings list people as LAST FIRST MIDDLE; turn that into 'First Middle Last'."""
+    raw = " ".join(str(raw or "").split())
+    if not raw or ENTITY_RE.search(raw):
+        return raw.title()
+    parts = raw.split(" ")
+    suffix = [parts.pop()] if len(parts) > 2 and parts[-1].upper() in NAME_SUFFIX else []
+    if len(parts) < 2:
+        return raw.title()
+    return " ".join(parts[1:] + parts[:1] + suffix).title()
+
+
+def insider_trades(tk: yf.Ticker, days: int = 400, limit: int = 60):
+    """Recent Form 4 filings: who bought or sold, and how much. Grants and gifts are kept
+    but labelled, because only open-market buys and sales say anything about opinion."""
+    df = tk.insider_transactions
+    if df is None or df.empty:
+        return None
+    cutoff = pd.Timestamp.now() - pd.Timedelta(days=days)
+    out = []
+    for _, r in df.iterrows():
+        when = pd.to_datetime(r.get("Start Date"), errors="coerce")
+        if pd.isna(when) or when < cutoff:
+            continue
+        text = str(r.get("Text") or "").strip()
+        kind = next((k for rx, k in INSIDER_KIND if rx.search(text)), "other")
+        shares = clean(r.get("Shares"))
+        value = clean(r.get("Value"))
+        prices = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", text.split("price", 1)[-1])[:2]] if "price" in text else []
+        px = sum(prices) / len(prices) if prices else None
+        if (not value) and kind in ("buy", "sell") and shares and px:
+            value = round(shares * px, 2)
+        out.append({
+            "date": when.strftime("%Y-%m-%d"),
+            "name": insider_name(r.get("Insider")),
+            "role": str(r.get("Position") or "").strip().title() or None,
+            "kind": kind,
+            "shares": shares,
+            "value": value or None,
+            "price": round(px, 2) if px else None,
+            "indirect": "I" in str(r.get("Ownership") or ""),
+            "text": text or None,
+        })
+    out.sort(key=lambda x: x["date"], reverse=True)
+    return {"transactions": out[:limit]}
+
+
 def snapshot(d: dict):
     """The handful of numbers worth tracking day by day."""
     s = {"date": d["updated"][:10], "price": d["quote"]["price"]}
@@ -478,6 +559,7 @@ def snapshot(d: dict):
         for r in e["epsTrend"]:
             if r.get("period") == "+1y":
                 s["epsNextYear"] = r.get("current")
+        s["targetMedian"] = (a["targets"] or {}).get("median")
     else:
         s["trailingPE"] = d["fund"]["trailingPE"]
     return s

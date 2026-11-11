@@ -91,7 +91,9 @@ export function lineChart(container, opts) {
     if (refLine != null) all.push(refLine);
     let mn = Math.min(...all), mx = Math.max(...all);
     const pad = (mx - mn) * 0.06 || 1;
-    const { lo, hi, ticks } = niceTicks(mn - pad, mx + pad, height < 170 ? 2 : height < 240 ? 3 : 4);
+    let { lo, hi, ticks } = niceTicks(mn - pad, mx + pad, height < 170 ? 2 : height < 240 ? 3 : 4);
+    // optional ceiling (e.g. 0% for "drop from peak" charts, which can never go above it)
+    if (opts.yMax != null && hi > opts.yMax) { hi = opts.yMax; ticks = ticks.filter((t) => t <= hi + 1e-9); }
     const n = dates.length;
     const X = (i) => m.l + (n === 1 ? w / 2 : (i / (n - 1)) * w);
     const Y = (v) => m.t + h - ((v - lo) / (hi - lo)) * h;

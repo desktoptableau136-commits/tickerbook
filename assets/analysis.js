@@ -17,6 +17,8 @@ export function money(v, { compact = true, digits } = {}) {
 }
 
 export const price = (v) => money(v, { compact: false });
+// Amounts like insider trades: $175K, $1.4M, $13M.
+export const moneyShort = (v) => (!isNum(v) ? "—" : Math.abs(v) >= 1e7 ? money(v, { digits: 0 }) : Math.abs(v) >= 1e6 ? money(v, { digits: 1 }) : Math.abs(v) >= 1e3 ? `${v < 0 ? "−" : ""}$${Math.round(Math.abs(v) / 1e3)}K` : money(v, { compact: false }));
 
 export function pct(v, { digits = 1, sign = false } = {}) {
   if (!isNum(v)) return "—";
@@ -940,6 +942,24 @@ export function judge(key, d) {
     }
     case "expenseRatio": return band(fu.expenseRatio, 0.005, 0.001, (x) => pct(x, { digits: 2 }), { good: "Under 0.10%: very cheap", ok: "0.10–0.50%: fine", bad: "Expensive for an index fund" }, false);
     case "netAssets": return isNum(fu.netAssets) ? { tone: fu.netAssets >= 1e9 ? "good" : "ok", value: money(fu.netAssets), text: fu.netAssets >= 1e9 ? "Comfortably large" : "On the small side" } : null;
+    case "shareCount": {
+      const c = cashUses(d);
+      if (!c || !isNum(c.shareChg)) return null;
+      const yrs = Math.max(1, c.rows.length - 1), per = Math.pow(1 + c.shareChg, 1 / yrs) - 1;
+      return { tone: per <= 0.005 ? "good" : per <= 0.02 ? "ok" : "bad", value: `${pct(c.shareChg, { sign: true, digits: 0 })} over ${yrs} year${yrs === 1 ? "" : "s"}`,
+        text: per < -0.005 ? "Falling: each share owns more" : per <= 0.005 ? "About flat" : per <= 0.02 ? "Rising slowly" : "Rising over 2% a year: dilution" };
+    }
+    case "capitalAllocation": {
+      const c = cashUses(d);
+      if (!c || !(c.fcf > 0)) return null;
+      const bad = c.returned > c.fcf * 1.1 && c.debt > 0;
+      return { tone: bad ? "bad" : c.tone, value: `${pct(c.returned / c.fcf, { digits: 0 })} of free cash flow handed back`, text: bad ? "Paying out more than it makes, with borrowed money" : c.label };
+    }
+    case "insiders": {
+      const s = insiderSummary(d);
+      if (!s) return null;
+      return { tone: s.buyers ? "good" : "ok", value: s.buyers ? `${s.buyers} buyer${s.buyers === 1 ? "" : "s"} in 12 months` : `${s.sellers} seller${s.sellers === 1 ? "" : "s"}, no buyers in 12 months`, text: s.label };
+    }
     default: return null;
   }
 }
@@ -1051,4 +1071,193 @@ export function quarterScore(d) {
   const net = good - bad;
   const v = net >= 2 ? ["good", "Good quarter"] : net <= -2 ? ["bad", "Weak quarter"] : ["ok", "Mixed quarter"];
   return { tone: v[0], label: v[1], good, bad, n: checks.length, checks };
+}
+
+// ------------------------------------------------------------------ insiders
+
+// Open-market buys and sales by executives and directors over the last `days`.
+// Grants (pay), gifts and option exercises say little about opinion, so they're counted separately.
+export function insiderSummary(d, days = 365) {
+  const tx = d.insiders?.transactions;
+  if (!tx) return null;
+  const since = Date.now() - days * 864e5;
+  const recent = tx.filter((x) => new Date(x.date + "T12:00:00") >= since);
+  const of = (k) => recent.filter((x) => x.kind === k);
+  const total = (xs) => xs.reduce((s, x) => s + (x.value || 0), 0);
+  const buys = of("buy"), sells = of("sell"), awards = of("award");
+  const bought = total(buys), sold = total(sells);
+  const buyers = new Set(buys.map((x) => x.name)).size, sellers = new Set(sells.map((x) => x.name)).size;
+  const cap = d.quote?.marketCap;
+  const s = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const lines = [];
+  if (buys.length) lines.push(`**${s(buyers, "insider")} bought ${moneyShort(bought)}** of stock with their own money${buyers > 1 ? "" : ` (${buys[0].name}${buys[0].role ? `, ${buys[0].role.toLowerCase()}` : ""})`}. Buying is rare and means more than selling: the only reason to buy is expecting the price to rise.`);
+  else lines.push("**No insider bought shares on the open market.** That's normal: most executives already get plenty of stock as pay.");
+  if (sells.length) lines.push(`${s(sellers, "insider")} sold ${moneyShort(sold)}${isNum(cap) && cap > 0 && sold / cap >= 0.0001 ? ` (${pct(sold / cap, { digits: 2 })} of the company's value)` : ""}. Selling is usually routine: executives are paid mostly in stock and sell to pay taxes, spread out their savings or buy a house, often through plans set up months in advance.`);
+  if (awards.length) lines.push(`${s(awards.length, "grant")} of shares as part of pay aren't counted.`);
+  const [tone, label] = buyers >= 2 ? ["good", "Insiders buying"] : buyers === 1 ? ["good", "One insider buying"]
+    : sells.length ? ["ok", "Selling only (usually routine)"] : ["ok", "No buying or selling"];
+  return { recent, buys, sells, awards, bought, sold, buyers, sellers, tone, label, lines, days };
+}
+
+// ------------------------------------------------------------------ drops from a peak
+
+const monthsBetween = (a, b) => (new Date(b) - new Date(a)) / (30.44 * 864e5);
+
+// How far the price fell below its previous high, day by day (0 = at a high, −0.2 = 20% below).
+// Episodes run from a high to the next new high; `recoverDate` is null when it hasn't got back yet.
+export function drawdowns(dates, close) {
+  if (!dates?.length || dates.length !== close?.length) return null;
+  let peak = close[0], pi = 0, cur = null;
+  const under = [], episodes = [];
+  for (let i = 0; i < close.length; i++) {
+    const c = close[i];
+    if (c >= peak) {
+      if (cur) { cur.ri = i; episodes.push(cur); cur = null; }
+      peak = c; pi = i; under.push(0); continue;
+    }
+    const dd = c / peak - 1;
+    under.push(dd);
+    if (!cur) cur = { pi, ti: i, depth: dd, ri: null };
+    else if (dd < cur.depth) { cur.ti = i; cur.depth = dd; }
+  }
+  if (cur) episodes.push(cur);
+  const fmt = (e) => e && {
+    depth: e.depth, peakDate: dates[e.pi], peakPrice: close[e.pi], troughDate: dates[e.ti], troughPrice: close[e.ti],
+    recoverDate: e.ri != null ? dates[e.ri] : null, fallMonths: monthsBetween(dates[e.pi], dates[e.ti]),
+    totalMonths: e.ri != null ? monthsBetween(dates[e.pi], dates[e.ri]) : null,
+  };
+  const worst = episodes.reduce((a, b) => (!a || b.depth < a.depth ? b : a), null);
+  return {
+    under, worst: fmt(worst),
+    big: episodes.filter((e) => e.depth <= -0.2).map(fmt),
+    now: { depth: under[under.length - 1], peakDate: dates[pi], peakPrice: peak },
+    start: dates[0],
+  };
+}
+
+// The S&P 500's move between two dates.
+export function benchMove(bench, from, to) {
+  if (!bench?.dates?.length) return null;
+  const at = (dt) => { const i = bench.dates.findIndex((x) => x >= dt); return i < 0 ? null : bench.close[i]; };
+  const a = at(from), b = at(to);
+  return isNum(a) && isNum(b) ? b / a - 1 : null;
+}
+
+export function dropStory(d, bench) {
+  const dd = drawdowns(d.prices?.dates, d.prices?.close);
+  if (!dd?.worst) return null;
+  const w = dd.worst, yrs = Math.round(monthsBetween(dd.start, d.prices.dates[d.prices.dates.length - 1]) / 12);
+  const mo = (m) => (m < 1.5 ? "about a month" : m < 21 ? `${Math.round(m)} months` : `${(m / 12).toFixed(1).replace(".0", "")} years`);
+  const when = (s) => date(s, { month: "short", year: "numeric" });
+  const lines = [];
+  lines.push(`**Worst drop in ${yrs} years: ${pct(w.depth, { digits: 0 })}**, from ${price(w.peakPrice)} (${when(w.peakDate)}) to ${price(w.troughPrice)} (${when(w.troughDate)}).` +
+    (w.recoverDate ? ` It took **${mo(w.totalMonths)}** from that high to get back to it.` : " **It hasn't got back to that high yet.**"));
+  const bm = d.symbol !== "VOO" ? benchMove(bench, w.peakDate, w.troughDate) : null;
+  if (isNum(bm)) lines.push(`The S&P 500 ${bm < -0.005 ? `fell ${pct(-bm, { digits: 0 })}` : bm > 0.005 ? `rose ${pct(bm, { digits: 0 })}` : "was flat"} over the same stretch, so ${bm > w.depth * 0.6 ? "most of the drop was this company's own, not the whole market's" : "much of it was the whole market falling"}.`);
+  if (dd.big.length > 1) lines.push(`It fell 20% or more ${dd.big.length} separate times in ${yrs} years.`);
+  const n = dd.now;
+  lines.push(n.depth > -0.03 ? "Today it's at or near its high." : `Today it's **${pct(-n.depth, { digits: 0 })} below** its high of ${price(n.peakPrice)} (${when(n.peakDate)}).`);
+  return { ...dd, years: yrs, lines };
+}
+
+// ------------------------------------------------------------------ where the cash goes
+
+// The last few fiscal years of free cash flow and what it was spent on. Cash-flow rows are
+// signed the way the statement shows them: money going out is negative.
+export function cashUses(d, years = 4) {
+  const rows = (d.financials?.annual || []).filter((r) => isNum(r.freeCashflow)).slice(-years);
+  if (rows.length < 2) return null;
+  const S = (k) => rows.reduce((s, r) => s + (isNum(r[k]) ? r[k] : 0), 0);
+  const fcf = S("freeCashflow"), buybacks = -S("buybacks"), dividends = -S("dividendsPaid"),
+    debt = S("netDebtIssued"), acq = -S("acquisitions"), issued = S("stockIssued");
+  const returned = buybacks + dividends;
+  const name = shortName(d);
+  const fy = (r) => `FY${r.period.slice(2, 4)}`;
+  const span = `${fy(rows[0])}–${fy(rows[rows.length - 1])}`;
+  const sh0 = rows.find((r) => isNum(r.dilutedShares))?.dilutedShares, sh1 = [...rows].reverse().find((r) => isNum(r.dilutedShares))?.dilutedShares;
+  const shareChg = isNum(sh0) && isNum(sh1) && sh0 ? sh1 / sh0 - 1 : null;
+  const last = rows[rows.length - 1], cap = d.quote?.marketCap;
+  const lastReturned = -((last.buybacks || 0) + (last.dividendsPaid || 0));
+  const yieldNow = isNum(cap) && cap > 0 && lastReturned > 0 ? lastReturned / cap : null;
+
+  const lines = [];
+  lines.push(`Over ${rows.length} fiscal years (${span}) ${name} made **${money(fcf)} of free cash flow**: the cash left after running and investing in the business.`);
+  if (returned > 0) lines.push(`It handed **${money(returned)}${fcf > 0 ? ` (${pct(returned / fcf, { digits: 0 })} of it)` : ""}** back to shareholders: ${money(buybacks)} buying back its own shares${dividends > 0 ? ` and ${money(dividends)} in dividends.` : ". It pays no dividend."}`);
+  else lines.push("It didn't buy back shares or pay dividends.");
+  if (debt > 0.05 * Math.abs(fcf)) lines.push(`It **borrowed ${money(debt)} more than it repaid**${returned > fcf ? ", which helped pay for handing back more cash than it made" : ""}.`);
+  else if (debt < -0.05 * Math.abs(fcf)) lines.push(`It **paid down ${money(-debt)} of debt** (after any new borrowing).`);
+  if (acq > 0.05 * Math.abs(fcf)) {
+    const big = rows.reduce((a, r) => (-(r.acquisitions || 0) > -(a.acquisitions || 0) ? r : a), rows[0]);
+    lines.push(`It spent **${money(acq)} buying other companies**${-(big.acquisitions || 0) > 0.6 * acq ? `, mostly in ${fy(big)}` : ""}.`);
+  }
+  if (isNum(shareChg)) lines.push(shareChg < -0.01 ? `Its share count **fell ${pct(-shareChg, { digits: 0 })}**, so each remaining share owns a bigger slice of the company.`
+    : shareChg > 0.01 ? `Its share count **rose ${pct(shareChg, { digits: 0 })}**: new shares (usually paid to employees) shrink each existing share's slice.`
+    : buybacks > 0 ? "Its share count barely moved: the buybacks mostly offset the new shares it pays employees with." : "Its share count barely moved.");
+
+  const parts = [
+    { key: "buybacks", label: "Buybacks", value: buybacks },
+    { key: "dividends", label: "Dividends", value: dividends },
+    { key: "debt", label: "Debt repaid", value: debt < 0 ? -debt : 0 },
+    { key: "acq", label: "Acquisitions", value: acq > 0 ? acq : 0 },
+  ];
+  const left = fcf - parts.reduce((s, p) => s + p.value, 0);
+  const [tone, label] = returned > fcf * 1.1 && debt > 0 ? ["ok", "Pays out more than it makes"]
+    : acq > returned && acq > 0.3 * fcf ? ["ok", "Spends most on acquisitions"]
+    : returned >= 0.6 * fcf ? ["good", "Returns most of its cash"] : ["ok", "Keeps or reinvests most of it"];
+  return { rows, span, fcf, buybacks, dividends, debt, acq, issued, returned, shareChg, sh0, sh1, yieldNow, parts, left, tone, label, lines };
+}
+
+// ------------------------------------------------------------------ what changed since your last look
+
+// The few numbers compared between visits. Stored in this browser only.
+export function fingerprint(d, score) {
+  const a = d.analysts || {}, e = d.earnings || {};
+  const sc = ratingScore((a.summary || []).find((r) => r.period === "0m"));
+  const maxDate = (xs) => xs.reduce((m, x) => (x && x > m ? x : m), "");
+  return {
+    at: d.updated, seen: new Date().toISOString(), price: d.quote?.price ?? null, score: score ?? null,
+    eps1y: estRow(e.epsTrend, "+1y").current ?? null, tmed: a.targets?.median ?? a.targets?.mean ?? null,
+    net: sc?.net ?? null, lastAction: maxDate((a.actions || []).map((x) => x.date)) || null,
+    report: maxDate((e.history || []).map((x) => x.date)) || null, filing: d.filing?.filed || null,
+    insider: maxDate((d.insiders?.transactions || []).map((x) => x.date)) || null,
+    er: d.fund?.expenseRatio ?? null,
+  };
+}
+
+// What moved between the fingerprint `b` and today's data, in plain English.
+// Each item: { tone: up|down|good|bad|note, text, tab }.
+export function changesSince(d, b, score) {
+  if (!b) return [];
+  const now = fingerprint(d, score), out = [];
+  const rel = (x, y) => (isNum(x) && isNum(y) && y !== 0 ? x / y - 1 : null);
+  const pc = rel(now.price, b.price);
+  if (isNum(pc) && Math.abs(pc) >= 0.001) out.push({ tone: pc > 0 ? "up" : "down", text: `Price ${pc > 0 ? "up" : "down"} ${pct(Math.abs(pc))}`, sub: `from ${price(b.price)}`, tab: "summary" });
+  if (now.report && now.report > (b.report || "")) {
+    const x = d.earnings.history.find((r) => r.date === now.report), one = x && oneOffMiss(d, x);
+    out.push(x && isNum(x.surprise)
+      ? { tone: one ? "note" : x.surprise >= 0 ? "good" : "bad", text: one ? "New report: missed, but because of a one-off charge" : `New report: ${x.surprise >= 0 ? "beat" : "missed"} estimates by ${pct(Math.abs(x.surprise))}`, tab: "earnings" }
+      : { tone: "note", text: "New earnings report", tab: "earnings" });
+  } else if (now.filing && now.filing !== b.filing) out.push({ tone: "note", text: "New press release from the company", tab: "earnings" });
+  if (d.type === "EQUITY") {
+    const acts = (d.analysts?.actions || []).filter((x) => x.date > (b.lastAction || "9999"));
+    const n = (k) => acts.filter((x) => x.action === k).length;
+    const s = (k, w) => `${n(k)} ${w}${n(k) === 1 ? "" : "s"}`;
+    if (n("up")) out.push({ tone: "good", text: s("up", "upgrade"), tab: "analysts" });
+    if (n("down")) out.push({ tone: "bad", text: s("down", "downgrade"), tab: "analysts" });
+    if (n("init")) out.push({ tone: "note", text: `${n("init")} new analyst${n("init") === 1 ? "" : "s"} covering it`, tab: "analysts" });
+    const tc = rel(now.tmed, b.tmed);
+    if (isNum(tc) && Math.abs(tc) >= 0.015) out.push({ tone: tc > 0 ? "good" : "bad", text: `Middle price target ${tc > 0 ? "raised" : "cut"} ${pct(Math.abs(tc))} to ${price(now.tmed)}`, tab: "analysts" });
+    if (isNum(now.net) && isNum(b.net) && now.net !== b.net) out.push({ tone: now.net > b.net ? "good" : "bad", text: `Analyst net score ${b.net > 0 ? "+" : ""}${b.net} → ${now.net > 0 ? "+" : ""}${now.net}`, tab: "analysts" });
+    const ec = rel(now.eps1y, b.eps1y);
+    if (isNum(ec) && Math.abs(ec) >= 0.005) out.push({ tone: ec > 0 ? "good" : "bad", text: `Next year's profit estimate ${ec > 0 ? "raised" : "cut"} ${pct(Math.abs(ec))}`, tab: "earnings" });
+    const ins = (d.insiders?.transactions || []).filter((x) => x.date > (b.insider || "9999"));
+    const bought = ins.filter((x) => x.kind === "buy").reduce((t, x) => t + (x.value || 0), 0);
+    const sold = ins.filter((x) => x.kind === "sell").reduce((t, x) => t + (x.value || 0), 0);
+    if (bought > 0) out.push({ tone: "good", text: `Insiders bought ${moneyShort(bought)}`, tab: "analysts" });
+    if (sold > 0) out.push({ tone: "note", text: `Insiders sold ${moneyShort(sold)}`, tab: "analysts" });
+  } else if (isNum(now.er) && isNum(b.er) && Math.abs(now.er - b.er) >= 0.00005) {
+    out.push({ tone: now.er < b.er ? "good" : "bad", text: `Fee ${now.er < b.er ? "cut" : "raised"} to ${pct(now.er, { digits: 2 })}`, tab: "summary" });
+  }
+  if (isNum(now.score) && isNum(b.score) && now.score !== b.score) out.push({ tone: now.score > b.score ? "good" : "bad", text: `Checklist score ${b.score} → ${now.score}`, tab: "summary" });
+  return out;
 }

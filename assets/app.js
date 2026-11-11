@@ -103,6 +103,39 @@ function signalsFor(d) {
   return d.type === "ETF" ? A.fundSignals(d, tickers().map((t) => t.symbol).filter((s) => s !== d.symbol)) : A.equitySignals(d);
 }
 
+// ================================================================ since your last look
+// A small fingerprint of each ticker is kept in this browser (never sent anywhere). Opening a
+// ticker records the visit; what changed since the previous visit stays listed until dismissed.
+function seenGet(sym) { try { return JSON.parse(pref(`seen.${sym}`) || "null"); } catch { return null; } }
+function seenSet(sym, v) { pref(`seen.${sym}`, JSON.stringify(v)); }
+const scoreOf = (d) => A.overall(signalsFor(d)).score;
+// Changes in data you haven't opened yet (for the home cards).
+function unseenChanges(d) {
+  const s = seenGet(d.symbol);
+  return s?.fp && s.fp.at !== d.updated ? A.changesSince(d, s.fp, scoreOf(d)) : [];
+}
+function visitChanges(d) {
+  const s = seenGet(d.symbol), fp = A.fingerprint(d, scoreOf(d));
+  if (!s?.fp) { seenSet(d.symbol, { fp }); return null; }
+  if (s.fp.at !== d.updated) { seenSet(d.symbol, { fp, prev: s.fp }); return { since: s.fp.seen, items: A.changesSince(d, s.fp, fp.score) }; }
+  return s.prev ? { since: s.prev.seen, items: A.changesSince(d, s.prev, fp.score) } : null;
+}
+const CHG_IC = { up: "▲", down: "▼", good: "▲", bad: "▼", note: "•" };
+function changesBanner(d) {
+  const c = visitChanges(d);
+  if (!c?.items.length) return null;
+  const el = h("div", { class: "changes", role: "status" },
+    h("span", { class: "changes-title" }, "Since you last looked", c.since ? h("span", { class: "muted" }, ` · ${A.ago(c.since)}`) : null),
+    h("div", { class: "changes-list" }, c.items.map((x) => h("a", { class: `chg ${x.tone}`, href: `#/t/${d.symbol}/${x.tab}`, "data-tip": x.sub || null },
+      h("span", { class: "ic", "aria-hidden": "true" }, CHG_IC[x.tone]), x.text))),
+    h("button", { class: "linkish small changes-x", type: "button", on: { click: () => {
+      const s = seenGet(d.symbol);
+      if (s) { delete s.prev; seenSet(d.symbol, s); }
+      el.remove(); fitDash();
+    } } }, "Got it"));
+  return el;
+}
+
 // ================================================================ router
 const view = document.getElementById("view");
 const overlay = document.getElementById("overlay");
@@ -203,8 +236,10 @@ function tickerCard(d, tag) {
   const foot = d.type === "ETF"
     ? h("span", { class: "muted" }, `Index fund · ${A.pct(d.fund?.expenseRatio, { digits: 2 })} fee`)
     : h("span", { class: "muted" }, days != null && days >= 0 ? `Earnings in ${days}d` : `1Y ${A.pct(y1, { sign: true })}`);
-  return h("a", { class: "card tcard", href: `#/t/${d.symbol}`, "aria-label": `${d.symbol}, ${A.price(d.quote.price)}, ${ov.lean}` },
-    h("div", { class: "tcard-top" }, h("span", { class: "tcard-sym" }, d.symbol), h("span", { class: `tag ${tag}` }, tag)),
+  const news = unseenChanges(d);
+  return h("a", { class: "card tcard", href: `#/t/${d.symbol}`, "aria-label": `${d.symbol}, ${A.price(d.quote.price)}, ${ov.lean}${news.length ? `, ${news.length} changes since you last looked` : ""}` },
+    h("div", { class: "tcard-top" }, h("span", { class: "tcard-sym" }, d.symbol), h("span", { class: `tag ${tag}` }, tag),
+      news.length ? h("span", { class: "new-badge", "data-tip": news.map((x) => x.text).join(" · "), "data-tip-title": "Since you last looked" }, `${news.length} new`) : null),
     h("div", { class: "tcard-name" }, d.name),
     h("div", { class: "tcard-mid" },
       h("div", {},
@@ -215,7 +250,7 @@ function tickerCard(d, tag) {
 }
 
 // ================================================================ ticker page
-const EQUITY_TABS = [["summary", "Summary"], ["earnings", "Earnings"], ["financials", "Financials"], ["valuation", "Valuation"], ["analysts", "Analysts"], ["news", "News"]];
+const EQUITY_TABS = [["summary", "Summary"], ["earnings", "Earnings"], ["financials", "Financials"], ["valuation", "Valuation"], ["peers", "Peers"], ["analysts", "Analysts"], ["news", "News"]];
 const FUND_TABS = [["summary", "Summary"], ["holdings", "Holdings"], ["news", "News"]];
 
 function renderTicker(sym, tab) {
@@ -252,8 +287,8 @@ function renderTicker(sym, tab) {
     h("span", { class: "tabs-note" }, "Learning tool · not financial advice"));
 
   const body = h("div", {});
-  view.append(head, tabBar, body);
-  const fn = { summary: tabSummary, earnings: tabEarnings, financials: tabFinancials, valuation: tabValuation, analysts: tabAnalysts, news: tabNews, holdings: tabHoldings }[tab];
+  view.append(head, changesBanner(d) || "", tabBar, body);
+  const fn = { summary: tabSummary, earnings: tabEarnings, financials: tabFinancials, valuation: tabValuation, peers: tabPeers, analysts: tabAnalysts, news: tabNews, holdings: tabHoldings }[tab];
   fn(d, body);
   body.append(h("p", { class: "disclaimer" }, "For learning and research only. Not financial advice."));
 }
@@ -268,6 +303,7 @@ function priceCard(d) {
   const box = h("div", { class: "flexcol" });
   let range = pref("range") || "1Y";
   let vsMarket = pref("vsMarket") === "1";
+  let drops = pref("drops") === "1";
   const perf = h("div", { class: "perf" });
 
   const draw = () => {
@@ -284,6 +320,25 @@ function priceCard(d) {
     const span = { "1M": "the last month", "6M": "the last 6 months", YTD: "the year so far", "1Y": "the last year", "5Y": "5 years" }[range];
     perf.replaceChildren(h("span", { class: signClass(chg) }, `${d.symbol} ${A.pct(chg, { sign: true })}`), ` over ${span}`);
     const c = h("div", {});
+    if (drops) {
+      // how far below its running high (over all the history we have) it was each day
+      const dd = A.drawdowns(dates, close), us = dd.under.slice(start);
+      const withB = vsMarket && state.bench && d.symbol !== "VOO";
+      const series = [{ name: d.symbol, values: us, color: "var(--series-1)" }];
+      if (withB) {
+        const bu = A.drawdowns(state.bench.dates, state.bench.close).under, bmap = new Map(state.bench.dates.map((x, i) => [x, bu[i]]));
+        series.push({ name: "S&P 500", values: ds.map((x) => bmap.get(x) ?? null), color: "var(--series-2)" });
+        box.append(legend(series.map((s) => ({ name: s.name, color: s.color, kind: "line" }))));
+      }
+      box.append(c);
+      lineChart(c, { dates: ds, series, area: false, refLine: 0, yMax: 0, yFormat: (v, axis) => (Math.abs(v) < 0.0005 ? "0%" : `${v < 0 ? "−" : "+"}${Math.abs(v * 100).toFixed(axis ? 0 : 1)}%`), xFormat: fmtX, tipTitle, height: 230, fill: true,
+        ariaLabel: `${d.symbol} percent below its previous high, ${range}` });
+      const worst = Math.min(...us);
+      perf.replaceChildren(h("span", { class: "down" }, `Worst ${A.pct(worst, { digits: 0 })}`), ` in ${span} · now `, h("b", {}, us[us.length - 1] > -0.005 ? "at its high" : `${A.pct(-us[us.length - 1], { digits: 0 })} below its high`));
+      const st = A.dropStory(d, state.bench);
+      if (st) box.append(h("p", { class: "small ink2 drop-note" }, rich(st.lines[0]), " ", rich(st.lines[1] || ""), " ", termBtn("drawdown", "About drops")));
+      return;
+    }
     if (vsMarket && state.bench && d.symbol !== "VOO") {
       const bmap = new Map(state.bench.dates.map((x, i) => [x, state.bench.close[i]]));
       const b0 = bmap.get(ds[0]) ?? state.bench.close[state.bench.dates.findIndex((x) => x >= ds[0])];
@@ -307,8 +362,10 @@ function priceCard(d) {
       on: { click: (e) => { range = k; pref("range", k); chips.querySelectorAll(".chip").forEach((x) => x.setAttribute("aria-pressed", String(x === e.currentTarget))); draw(); } } }, k)));
   const tog = d.symbol !== "VOO" && state.bench ? h("label", { class: "toggle" },
     h("input", { type: "checkbox", ...(vsMarket ? { checked: true } : {}), on: { change: (e) => { vsMarket = e.target.checked; pref("vsMarket", vsMarket ? "1" : "0"); draw(); } } }), "vs S&P 500") : null;
+  const dropTog = h("label", { class: "toggle", "data-tip": "Shows how far the price was below its previous high on each day, and how long it took to recover.", "data-tip-title": "Drops from a peak" },
+    h("input", { type: "checkbox", ...(drops ? { checked: true } : {}), on: { change: (e) => { drops = e.target.checked; pref("drops", drops ? "1" : "0"); draw(); } } }), "Drops");
   requestAnimationFrame(draw);
-  return card(null, { area: "chart", class: "span" }, h("div", { class: "chart-controls" }, chips, perf, tog), box);
+  return card(null, { area: "chart", class: "span" }, h("div", { class: "chart-controls" }, chips, h("div", { class: "toggles" }, tog, dropTog), perf), box);
 }
 
 // ---------------------------------------------------------------- summary
@@ -716,6 +773,36 @@ function tabFinancials(d, body) {
         tile("Return on equity", A.pct(f.roe), null, "roe"),
         tile("Short interest", A.pct(f.shortPercentOfFloat), null, "shortInterest"))));
 
+    const cu = A.cashUses(d);
+    if (cu) {
+      const share = (v) => (cu.fcf > 0 ? ` (${A.pct(v / cu.fcf, { digits: 0 })})` : "");
+      const fy = (r) => `FY${r.period.slice(2, 4)}`;
+      const signed = (v) => (isNum(v) && v !== 0 ? `${v > 0 ? "+" : "−"}${A.money(Math.abs(v))}` : "—");
+      g.append(card("Where the cash goes", { area: "cash", class: "span", term: "capitalAllocation", right: pill(cu.tone, cu.label),
+        sub: `What ${A.shortName(d)} did with its free cash flow, ${cu.span} (fiscal years, from the cash-flow statement)` },
+        h("div", { class: "cash" },
+          h("div", { class: "cash-story" }, cu.lines.map((t) => h("p", {}, rich(t)))),
+          h("div", { class: "cash-bars" },
+            h("div", { class: "muted small", style: "margin-bottom:8px" }, `Spending as a share of the ${A.money(cu.fcf)} free cash flow`),
+            hbars([{ label: "Free cash flow", value: Math.max(0, cu.fcf), highlight: true }, ...cu.parts.filter((p) => p.value > 0).map((p) => ({ label: p.label, value: p.value }))],
+              (v) => `${A.money(v)}${v !== cu.fcf ? share(v) : ""}`),
+            h("p", { class: "muted small", style: "margin:8px 0 0" }, cu.left >= 0 ? `About ${A.money(cu.left)} was left over (added to cash or invested elsewhere).`
+              : `It spent ${A.money(-cu.left)} more than its free cash flow, covered by ${cu.debt > 0 ? "borrowing" : "cash it already had"}.`),
+            h("div", { class: "tiles", style: "margin-top:10px" },
+              tile("Share count", isNum(cu.sh1) ? `${A.num(cu.sh1 / 1e6, 0)}M` : "—", isNum(cu.shareChg) ? `${A.pct(cu.shareChg, { sign: true, digits: 1 })} since ${fy(cu.rows[0])}` : null, "shareCount"),
+              tile("Handed back last year", A.pct(cu.yieldNow), "Buybacks + dividends ÷ market value", "buybacks"))),
+          h("div", { class: "table-wrap cash-table" }, h("table", { class: "sticky-first" },
+            h("thead", {}, h("tr", {}, h("th", {}, ""), cu.rows.map((r) => h("th", {}, fy(r))))),
+            h("tbody", {},
+              h("tr", {}, h("td", {}, termBtn("freeCashflow", "Free cash flow")), cu.rows.map((r) => h("td", { class: r.freeCashflow < 0 ? "down" : "" }, A.money(r.freeCashflow)))),
+              h("tr", {}, h("td", {}, termBtn("buybacks", "Buybacks")), cu.rows.map((r) => h("td", {}, isNum(r.buybacks) && r.buybacks ? A.money(-r.buybacks) : "—"))),
+              h("tr", {}, h("td", {}, termBtn("dividendYield", "Dividends")), cu.rows.map((r) => h("td", {}, isNum(r.dividendsPaid) && r.dividendsPaid ? A.money(-r.dividendsPaid) : "—"))),
+              h("tr", {}, h("td", {}, h("span", { class: "has-tip", "data-tip": "+ means it borrowed more than it repaid that year; − means it paid debt down.", "data-tip-title": "Debt, net" }, "Debt (+ borrowed, − repaid)")),
+                cu.rows.map((r) => h("td", {}, signed(r.netDebtIssued)))),
+              h("tr", {}, h("td", {}, "Acquisitions"), cu.rows.map((r) => h("td", {}, isNum(r.acquisitions) && r.acquisitions < 0 ? A.money(-r.acquisitions) : isNum(r.acquisitions) && r.acquisitions > 0 ? `sold ${A.money(r.acquisitions)}` : "—"))),
+              h("tr", {}, h("td", {}, termBtn("shareCount", "Shares (diluted)")), cu.rows.map((r) => h("td", {}, isNum(r.dilutedShares) ? `${A.num(r.dilutedShares / 1e6, 0)}M` : "—")))))))));
+    }
+
     const L = [["revenue", "Revenue", "revenue"], ["grossProfit", "Gross profit", "grossMargin"], ["operatingIncome", "Operating income", "operatingMargin"], ["netIncome", "Net income", "netMargin"],
       ["eps", "EPS (reported)", "adjustedEps"], ["unusualItems", "Unusual items", "unusualItems"], ["operatingCashflow", "Operating cash flow", "operatingCashflow"], ["capex", "Capex", "capex"],
       ["freeCashflow", "Free cash flow", "freeCashflow"], ["buybacks", "Buybacks", "buybacks"], ["dividendsPaid", "Dividends paid", "dividendYield"], ["rnd", "R&D", null], ["interestExpense", "Interest expense", null]];
@@ -996,6 +1083,30 @@ function tabAnalysts(d, body) {
               : h("div", { class: "muted" }, x.targetAction === "Maintains" ? "target unchanged" : "target")) : null);
       }));
   }
+
+  const ins = A.insiderSummary(d);
+  if (ins) {
+    const trades = ins.recent.filter((x) => x.kind === "buy" || x.kind === "sell");
+    const SHOW = 8;
+    const list = h("div", { class: "ins-list" }, trades.map((x, i) => h("div", { class: `list-row${i >= SHOW ? " extra" : ""}` },
+      h("div", { class: "grow" },
+        h("div", {}, h("b", {}, x.name), x.role ? h("span", { class: "muted small" }, ` · ${x.role}`) : null),
+        h("div", { class: "small muted" }, `${A.date(x.date)} · ${A.num(x.shares, 0)} shares${isNum(x.price) ? ` at ~${A.price(x.price)}` : ""}${x.indirect ? " · includes shares held indirectly (trust, family)" : ""}`)),
+      h("div", { style: "text-align:right" },
+        x.kind === "buy" ? h("span", { class: "pill good" }, h("span", { class: "ic", "aria-hidden": "true" }, "▲"), "Bought") : h("span", { class: "pill na" }, h("span", { class: "ic", "aria-hidden": "true" }, "▼"), "Sold"),
+        h("div", { class: "small tnum", style: "margin-top:3px;font-weight:600" }, A.moneyShort(x.value))))));
+    const more = trades.length > SHOW ? h("button", { class: "linkish small", type: "button", style: "margin-top:8px",
+      on: { click: () => { list.classList.toggle("all"); more.textContent = list.classList.contains("all") ? "Show fewer" : `Show all ${trades.length}`; fitDash(); } } }, `Show all ${trades.length}`) : null;
+    g.append(card("What insiders are doing", { area: "insiders", class: "span", term: "insiders", right: pill(ins.tone, ins.label),
+      sub: "Trades by the company's own executives and directors in the last 12 months, from their SEC filings (Form 4)" },
+      h("div", { class: "ins" },
+        h("div", {},
+          h("div", { class: "tiles" },
+            tile("Bought", ins.bought ? A.moneyShort(ins.bought) : "None", `${ins.buyers} ${ins.buyers === 1 ? "person" : "people"}`),
+            tile("Sold", ins.sold ? A.moneyShort(ins.sold) : "None", `${ins.sellers} ${ins.sellers === 1 ? "person" : "people"}`)),
+          h("div", { class: "ins-story" }, ins.lines.map((t) => h("p", { class: "small ink2" }, rich(t))))),
+        trades.length ? h("div", {}, list, more) : h("p", { class: "muted" }, "No open-market buys or sales in the last 12 months."))));
+  }
 }
 
 // ---------------------------------------------------------------- news
@@ -1035,6 +1146,123 @@ function tabHoldings(d, body) {
     g.append(card("Overlap with your watchlist", { area: "overlap", class: "span" },
       h("p", { class: "ink2", style: "margin:0" }, `For every $1,000 in ${d.symbol}, about ${Object.entries(byS).map(([s, w]) => `$${Math.round(w * 1000)} goes to ${s}`).join(" and ")}. If you also buy those stocks directly, you're adding to positions you already hold through the fund.`)));
   }
+}
+
+// ================================================================ peers
+// The company next to the largest companies in its Yahoo industry (fetch.py's build_peers).
+// Each row reads the same Yahoo field for the company and every peer, so they're comparable.
+// `ok` drops meaningless values (negative multiples, buyback-inflated returns) before ranking;
+// `better` is the direction that wins, or null when higher isn't better or worse.
+const netDebtRatio = (debt, cash, ebitda) => (isNum(debt) && isNum(cash) && isNum(ebitda) && ebitda > 0 ? (debt - cash) / ebitda : null);
+const recWord = (v) => (v < 1.5 ? "Strong buy" : v < 2.5 ? "Buy" : v < 3.5 ? "Hold" : v < 4.5 ? "Sell" : "Strong sell");
+const PEER_GROUPS = [
+  ["Is the price reasonable?", [
+    { label: "Forward P/E", term: "forwardPE", self: (d) => d.valuation?.forwardPE, peer: (p) => p.forwardPE, fmt: (v) => A.times(v), better: "low", ok: (v) => v > 0 && v < 80, words: ["cheaper", "pricier"] },
+    { label: "PEG", term: "peg", self: (d) => d.valuation?.peg, peer: (p) => p.peg, fmt: (v) => A.num(v, 2), better: "low", ok: (v) => v > 0 && v < 10, words: ["cheaper for its growth", "pricier for its growth"] },
+    { label: "EV / EBITDA", term: "evToEbitda", self: (d) => d.valuation?.evToEbitda, peer: (p) => p.evToEbitda, fmt: (v) => A.times(v), better: "low", ok: (v) => v > 0 && v < 60, words: ["cheaper", "pricier"] },
+    { label: "Price / sales", term: "priceToSales", self: (d) => d.valuation?.priceToSales, peer: (p) => p.priceToSales, fmt: (v) => A.times(v), better: "low", ok: (v) => v > 0 && v < 50, words: ["cheaper", "pricier"] },
+  ]],
+  ["How good is the business?", [
+    { label: "Sales growth", term: "revenueGrowth", self: (d) => d.fundamentals?.revenueGrowth, peer: (p) => p.revenueGrowth, fmt: (v) => A.pct(v, { sign: true }), better: "high", words: ["faster-growing", "slower-growing"] },
+    { label: "Operating margin", term: "operatingMargin", self: (d) => d.fundamentals?.operatingMargin, peer: (p) => p.operatingMargin, fmt: (v) => A.pct(v), better: "high", words: ["more profitable", "less profitable"] },
+    { label: "Return on equity", term: "roe", self: (d) => d.fundamentals?.roe, peer: (p) => p.roe, fmt: (v) => A.pct(v, { digits: 0 }), better: "high", ok: (v) => v > -1 && v < 1.5, words: ["better at earning on shareholders' money", "worse at earning on shareholders' money"] },
+  ]],
+  ["How risky is it?", [
+    { label: "Net debt / EBITDA", term: "netDebtToEbitda", self: (d) => A.leverage(d)?.ratio, peer: (p) => netDebtRatio(p.debt, p.cash, p.ebitda), fmt: (v) => (v < 0 ? "Net cash" : A.times(v)), better: "low", ok: (v) => v > -10 && v < 20, words: ["less indebted", "more indebted"] },
+    { label: "Beta", term: "beta", self: (d) => d.quote?.beta, peer: (p) => p.beta, fmt: (v) => A.num(v, 2), better: null, higher: "swingier" },
+    { label: "1-year return", term: null, self: (d) => A.priceChange(d, 252), peer: (p) => p.change52, fmt: (v) => A.pct(v, { sign: true, digits: 0 }), better: null, higher: "up more" },
+    { label: "Below 52-week high", term: "range52", self: (d) => (d.quote?.high52 ? d.quote.price / d.quote.high52 - 1 : null), peer: (p) => (p.high52 && p.price ? p.price / p.high52 - 1 : null), fmt: (v) => (v > -0.005 ? "At its high" : A.pct(v, { digits: 0 })), better: null, higher: "closer to its high" },
+  ]],
+  ["What do shareholders get?", [
+    { label: "Dividend yield", term: "dividendYield", self: (d) => d.valuation?.dividendYield || 0, peer: (p) => p.dividendYield || 0, fmt: (v) => (v ? A.pct(v, { digits: 2 }) : "None"), better: null, higher: "pays more" },
+  ]],
+  ["What do analysts think?", [
+    { label: "Analyst rating", term: "analystRating", self: (d) => d.analysts?.recommendationMean, peer: (p) => p.recommendationMean, fmt: (v) => `${recWord(v)} (${A.num(v, 1)})`, better: "low", ok: (v) => v >= 1 && v <= 5, words: ["rated more highly", "rated less highly"] },
+    { label: "Upside to middle target", term: "priceTarget", self: (d) => { const t = d.analysts?.targets || {}, v = isNum(t.median) ? t.median : t.mean; return isNum(v) ? v / d.quote.price - 1 : null; },
+      peer: (p) => (isNum(p.targetMedian) && p.price ? p.targetMedian / p.price - 1 : null), fmt: (v) => A.pct(v, { sign: true }), better: "high", words: ["seen as having more upside", "seen as having less upside"] },
+  ]],
+];
+const midOf = (xs) => { const v = [...xs].sort((a, b) => a - b), m = v.length >> 1; return !v.length ? null : v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+function peerStats(r, d) {
+  const valid = (v) => isNum(v) && (!r.ok || r.ok(v));
+  const sv = r.self(d), me = valid(sv) ? sv : null;
+  const ps = (d.peers?.list || []).map((p) => ({ p, v: r.peer(p) })).filter((x) => valid(x.v));
+  const n = ps.length, med = midOf(ps.map((x) => x.v));
+  const above = me == null ? 0 : ps.filter((x) => me > x.v).length, below = me == null ? 0 : ps.filter((x) => me < x.v).length;
+  const beats = r.better === "high" ? above : r.better === "low" ? below : null;
+  const lags = r.better === "high" ? below : r.better === "low" ? above : null;
+  const tone = beats == null || me == null || !n ? null : beats >= (2 * n) / 3 ? "good" : lags >= (2 * n) / 3 ? "bad" : "ok";
+  return { me, ps, n, med, above, below, beats, lags, tone };
+}
+// a label that explains the term on hover/click without the rule-of-thumb thumb (this tab ranks against peers instead)
+const termPlain = (key, label) => (key && GLOSSARY[key] ? h("button", { class: "term", type: "button", "data-term": key, on: { click: (e) => { e.preventDefault(); e.stopPropagation(); openTerm(key); } } }, label) : label);
+
+function peerStrip(r, s, d) {
+  const vals = [...s.ps.map((x) => x.v), ...(s.me != null ? [s.me] : [])];
+  if (vals.length < 2) return h("div", {});
+  const lo = Math.min(...vals), hi = Math.max(...vals), pos = (v) => `${hi > lo ? 4 + ((v - lo) / (hi - lo)) * 92 : 50}%`;
+  return h("div", { class: "pstrip", role: "img", "aria-label": `${d.symbol} ${s.me != null ? r.fmt(s.me) : "n/a"}; peers from ${r.fmt(lo)} to ${r.fmt(hi)}` },
+    h("div", { class: "pstrip-axis" }),
+    isNum(s.med) ? h("div", { class: "pstrip-med", style: `left:${pos(s.med)}`, "data-tip": r.fmt(s.med), "data-tip-title": "Peers' middle" }) : null,
+    s.ps.map((x) => h("div", { class: "pstrip-dot", style: `left:${pos(x.v)}`, "data-tip": r.fmt(x.v), "data-tip-title": `${x.p.symbol} · ${x.p.name}` })),
+    s.me != null ? h("div", { class: "pstrip-dot me", style: `left:${pos(s.me)}`, "data-tip": r.fmt(s.me), "data-tip-title": `${d.symbol} (this one)` }) : null);
+}
+
+function tabPeers(d, body) {
+  const pe = d.peers, list = pe?.list || [];
+  const g = grid("peers", true);
+  body.append(g);
+  if (!list.length) {
+    g.append(card("Peers", {}, h("p", { class: "muted", style: "margin:0" }, "Yahoo doesn't list other companies in this industry, so there's nothing to compare against.")));
+    return;
+  }
+  const rows = PEER_GROUPS.flatMap(([, rs]) => rs.map((r) => ({ r, s: peerStats(r, d) })));
+  const name = A.shortName(d);
+
+  // in words: where it beats or lags most of its peers
+  const line = (r, s, good) => rich(`**${(good ? r.words[0] : r.words[1]).replace(/^./, (c) => c.toUpperCase())}** than ${good ? s.beats : s.lags} of ${s.n} peers on ${r.label.replace(/^([A-Z])(?=[a-z])/, (c) => c.toLowerCase())} (${r.fmt(s.me)} vs a middle of ${r.fmt(s.med)})`);
+  const wins = rows.filter((x) => x.s.tone === "good"), losses = rows.filter((x) => x.s.tone === "bad");
+  const others = list.filter((p) => isNum(p.marketCap)).length;
+  g.append(card(`How ${name} stacks up`, { area: "sum", sub: `Against the ${list.length} largest other companies in ${pe.industry || "its industry"}, as listed by Yahoo` },
+    h("div", { class: "psum" },
+      h("div", {}, h("h3", {}, pill("good", "Beats most peers")), wins.length ? h("ul", { class: "spread-why" }, wins.map((x) => h("li", {}, line(x.r, x.s, true)))) : h("p", { class: "muted small" }, "Not clearly ahead on any of these.")),
+      h("div", {}, h("h3", {}, pill("bad", "Lags most peers")), losses.length ? h("ul", { class: "spread-why" }, losses.map((x) => h("li", {}, line(x.r, x.s, false)))) : h("p", { class: "muted small" }, "Not clearly behind on any of these."))),
+    h("div", { class: "peer-names" }, h("div", { class: "muted small" }, "The peers"),
+      h("div", { class: "peer-chips" }, list.map((p) => state.data[p.symbol]
+        ? h("a", { class: "tag plain", href: `#/t/${p.symbol}/peers`, "data-tip": `${p.name} · ${A.money(p.marketCap)} · on your watchlist`, "data-tip-title": p.symbol }, p.symbol)
+        : h("span", { class: "tag plain", "data-tip": `${p.name} · ${A.money(p.marketCap)}`, "data-tip-title": p.symbol }, p.symbol)))),
+    h("p", { class: "muted small", style: "margin:10px 0 0" }, `“Beats most” means better than at least two-thirds of the peers with a usable number. Peers are chosen by industry, not by business model, so check that they're really comparable${others < 4 ? ". With so few peers, treat the ranks loosely" : ""}.`)));
+
+  // every metric: this company, the peers' middle, where it sits among them
+  const head = h("div", { class: "prow phead muted small" }, h("span", {}), h("span", {}, d.symbol), h("span", {}, "Peers' middle"), h("span", {}, "Where it sits (each dot is a peer)"), h("span", {}));
+  g.append(card("Side by side with its peers", { area: "list", sub: `${d.symbol} is the larger blue dot; the line is the peers' middle. Hover a dot to see which company it is.` },
+    legend([{ name: d.symbol, color: "var(--series-1)" }, { name: "A peer", color: "var(--series-muted)" }, { name: "Peers' middle", color: "var(--ink)", kind: "line" }]),
+    head,
+    PEER_GROUPS.map(([title, rs]) => h("div", { class: "pgroup" }, h("h3", {}, title), rs.map((r) => {
+      const s = peerStats(r, d);
+      const where = s.me == null || !s.n ? h("span", { class: "muted small" }, "n/a")
+        : r.better ? pill(s.tone, `Better than ${s.beats} of ${s.n}`)
+        : h("span", { class: "small ink2" }, `${r.higher.replace(/^./, (c) => c.toUpperCase())} than ${s.above} of ${s.n}`);
+      return h("div", { class: "prow" },
+        h("span", { class: "plbl" }, r.term ? termPlain(r.term, r.label) : r.label),
+        h("b", { class: "pme tnum" }, s.me != null ? r.fmt(s.me) : "—"),
+        h("span", { class: "pmed tnum muted" }, isNum(s.med) ? r.fmt(s.med) : "—"),
+        h("div", { class: "pstr" }, peerStrip(r, s, d)),
+        h("span", { class: "pwhere" }, where));
+    })))));
+
+  // the raw numbers, company by company
+  const cols = PEER_GROUPS.flatMap(([, rs]) => rs);
+  const cell = (r, v) => h("td", { class: "tnum" }, isNum(v) && (!r.ok || r.ok(v)) ? r.fmt(v) : "—");
+  g.append(card(null, { area: "all", class: "span" },
+    h("details", { class: "peer-all" }, h("summary", {}, h("b", {}, "Every peer's numbers"), h("span", { class: "muted small" }, " · the table behind the chart, largest company first")),
+      h("div", { class: "table-wrap" }, h("table", { class: "cmp sticky-first" },
+        h("thead", {}, h("tr", {}, h("th", {}, "Company"), h("th", {}, "Size"), cols.map((r) => h("th", {}, r.label)))),
+        h("tbody", {},
+          h("tr", { class: "self" }, h("td", {}, h("b", {}, `${d.symbol} (this one)`)), h("td", { class: "tnum" }, A.money(d.quote.marketCap)), cols.map((r) => cell(r, r.self(d)))),
+          [...list].sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0)).map((p) => h("tr", {},
+            h("td", {}, state.data[p.symbol] ? h("a", { href: `#/t/${p.symbol}/peers` }, p.symbol) : p.symbol, h("span", { class: "muted" }, ` · ${p.name}`)),
+            h("td", { class: "tnum" }, A.money(p.marketCap)), cols.map((r) => cell(r, r.peer(p)))))))))));
 }
 
 // ================================================================ learn
