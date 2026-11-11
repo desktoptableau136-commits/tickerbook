@@ -1012,3 +1012,29 @@ html.dash-on .dash-dividends .tiles, html.dash-on .dash-divfund .tiles { grid-te
 /* why our net debt / EBITDA differs from the company's */
 .lev-notes { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
 .lev-notes p { margin: 6px 0 0; }
+
+/* Walkthrough tab: one slide at a time, the real card beside its explanation */
+.walk-top { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; margin: 4px 0 12px; }
+.walk-top .btn:disabled { visibility: hidden; }
+.walk-mid { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.walk-dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; }
+.walk-dot { width: 14px; height: 24px; padding: 0; border: 0; background: none; cursor: pointer; display: grid; place-items: center; }
+.walk-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+.walk-dot.seen::before { background: var(--series-muted); }
+.walk-dot.on::before { background: var(--accent); width: 10px; height: 10px; }
+.walk-slide { display: grid; gap: 14px; }
+.walk-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.walk-head h2 { margin: 0; }
+.walk-k { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 16px 0 4px; }
+.walk-text p { margin: 0 0 8px; }
+.walk-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.walk-panel > .card { margin: 0; }
+.walk-recap { display: grid; gap: 4px; margin-top: 14px; }
+.walk-recap-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.walk-recap-row:hover { background: var(--surface-2); }
+@media (min-width: 640px) { .walk-dot { width: 22px; } }
+@media (min-width: 960px) {
+  .walk-slide { grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); align-items: start; }
+  .walk-slide.no-panel { grid-template-columns: minmax(0, 720px); }
+  .walk-text { position: sticky; top: 12px; }
+}

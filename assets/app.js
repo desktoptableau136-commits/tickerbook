@@ -352,8 +352,10 @@ function tickerCard(d, tag) {
 }
 
 // ================================================================ ticker page
-const EQUITY_TABS = [["summary", "Summary"], ["earnings", "Earnings"], ["financials", "Financials"], ["dividends", "Dividends"], ["valuation", "Valuation"], ["peers", "Peers"], ["analysts", "Analysts"], ["news", "News"]];
-const FUND_TABS = [["summary", "Summary"], ["holdings", "Holdings"], ["dividends", "Dividends"], ["news", "News"]];
+const EQUITY_TABS = [["summary", "Summary"], ["walk", "Walkthrough"], ["earnings", "Earnings"], ["financials", "Financials"], ["dividends", "Dividends"], ["valuation", "Valuation"], ["peers", "Peers"], ["analysts", "Analysts"], ["news", "News"]];
+const FUND_TABS = [["summary", "Summary"], ["walk", "Walkthrough"], ["holdings", "Holdings"], ["dividends", "Dividends"], ["news", "News"]];
+
+const TAB_FN = { summary: tabSummary, walk: tabWalk, earnings: tabEarnings, financials: tabFinancials, dividends: tabDividends, valuation: tabValuation, peers: tabPeers, analysts: tabAnalysts, news: tabNews, holdings: tabHoldings };
 
 function renderTicker(sym, tab) {
   const d = state.data[sym];
@@ -390,8 +392,7 @@ function renderTicker(sym, tab) {
 
   const body = h("div", {});
   view.append(head, archiveNote(d, sym), changesBanner(d) || "", tabBar, body);
-  const fn = { summary: tabSummary, earnings: tabEarnings, financials: tabFinancials, dividends: tabDividends, valuation: tabValuation, peers: tabPeers, analysts: tabAnalysts, news: tabNews, holdings: tabHoldings }[tab];
-  fn(d, body);
+  TAB_FN[tab](d, body);
   body.append(h("p", { class: "disclaimer" }, "For learning and research only. Not financial advice."));
 }
 
@@ -535,7 +536,7 @@ function verdictCard(d) {
     h("div", { class: "signals" }, sig.map((s) => h("details", { class: "signal" },
       h("summary", {}, h("span", { class: "lbl" }, h("span", { class: "has-tip", "data-tip": s.text, "data-tip-title": `${s.label}: ${s.word}` }, s.label)), h("span", { class: "val" }, s.value), pill(s.status, s.word)),
       h("div", { class: "body" }, h("p", {}, s.text), s.term ? h("button", { class: "linkish small", type: "button", on: { click: () => openTerm(s.term) } }, `What's ${GLOSSARY[s.term].term}?`) : null)))),
-    h("p", { class: "muted small", style: "margin:10px 0 0" }, h("span", { class: "only-touch" }, "Tap a row for what it means. "), h("span", { class: "only-hover" }, "Hover a row for what it means. "), "The score is a simple checklist (green = 1, amber = ½, red = 0), not a prediction."));
+    h("p", { class: "muted small", style: "margin:10px 0 0" }, h("span", { class: "only-touch" }, "Tap a row for what it means. "), h("span", { class: "only-hover" }, "Hover a row for what it means. "), "The score is a simple checklist (green = 1, amber = ½, red = 0), not a prediction. ", h("a", { href: `#/t/${d.symbol}/walk` }, "New to this? Walk through it step by step ›")));
 }
 
 function rangeFigure(lo, hi, cur, { mean, labels } = {}) {
@@ -1024,24 +1025,27 @@ function tabDividends(d, body) {
   }
 
   // ---- per year
-  const yrs = s.byYear.filter((y) => !y.partial).slice(-15);
-  if (yrs.length >= 2) {
+  // the current year shows as a lighter "so far" bar, so a big raise this year isn't hidden
+  const full = s.byYear.filter((y) => !y.partial).slice(-15), cur = s.byYear.find((y) => y.partial);
+  const yrs = cur?.count ? [...full.slice(-14), cur] : full;
+  if (full.length >= 2) {
     const hasSpecial = yrs.some((y) => y.special > 0);
-    const cur = s.byYear.find((y) => y.partial);
-    const cuts = yrs.filter((y) => y.cut).map((y) => y.year);
+    const cuts = full.filter((y) => y.cut).map((y) => y.year);
     const c = h("div", {});
     g.append(card("Dividend per share, by year", { area: "years", term: "dividendGrowth",
       sub: [`What one share paid each calendar year`, cur?.count ? ` · ${cur.year} so far: ${A.price(cur.regular + cur.special)}` : "", cuts.length ? ` · cut in ${cuts.join(", ")} (see hover)` : ""].join("") },
-      hasSpecial ? legend([{ name: "Regular", color: "var(--series-1)" }, { name: "Special (one-time)", color: "var(--series-2)" }]) : null, c));
+      hasSpecial || cur?.count ? legend([{ name: "Regular", color: "var(--series-1)" }, ...(hasSpecial ? [{ name: "Special (one-time)", color: "var(--series-2)" }] : []),
+        ...(cur?.count ? [{ name: `${cur.year} so far`, color: "var(--series-muted)" }] : [])]) : null, c));
     requestAnimationFrame(() => columnChart(c, {
       categories: yrs.map((y) => `'${String(y.year).slice(2)}`),
       series: [{ name: "Regular", values: yrs.map((y) => y.regular), color: "var(--series-1)" }, ...(hasSpecial ? [{ name: "Special", values: yrs.map((y) => y.special || null), color: "var(--series-2)" }] : [])],
+      colorFor: (si, i) => (yrs[i].partial ? "var(--series-muted)" : si ? "var(--series-2)" : "var(--series-1)"),
       yFormat: (v, axis) => (axis ? `$${v.toFixed(v < 2 ? 2 : 0)}` : A.price(v)),
       tipRows: (i) => {
         const y = yrs[i], prev = yrs[i - 1];
-        const rows = [{ color: "var(--series-1)", label: `${y.count} payment${y.count === 1 ? "" : "s"}`, value: A.price(y.regular) }];
+        const rows = [{ color: y.partial ? "var(--series-muted)" : "var(--series-1)", label: `${y.count} payment${y.count === 1 ? "" : "s"}${y.partial ? " so far" : ""}`, value: A.price(y.regular) }];
         if (y.special) rows.push({ color: "var(--series-2)", label: "Special", value: A.price(y.special) });
-        if (prev?.regular > 0 && y.regular > 0) rows.push({ label: "vs year before", value: A.pct(y.regular / prev.regular - 1, { sign: true }) });
+        if (prev?.regular > 0 && y.regular > 0 && !y.partial) rows.push({ label: "vs year before", value: A.pct(y.regular / prev.regular - 1, { sign: true }) });
         if (!s.isFund && (y.raised || y.cut)) rows.push({ label: y.cut ? "✕ Cut" : "▲ Raised", value: y.cut && y.raised ? "and raised" : "this year" });
         return rows;
       },
@@ -1070,7 +1074,7 @@ function tabDividends(d, body) {
     return h("div", { class: `list-row${i >= SHOW ? " extra" : ""}` },
       h("div", { class: "grow" }, fd(p.date)),
       p.special ? h("span", { class: "small muted" }, termBtn("specialDividend", "Special")) : p.glitch ? h("span", { class: "small muted has-tip", "data-tip": "A payment far below the ones either side of it, which the company never actually made. Left out of every figure." }, "Data error, ignored")
-        : isNum(ch) && Math.abs(ch) >= 0.005 ? h("span", { class: `small tnum ${signClass(ch)}` }, `${arrow(ch)} ${ch > 0 ? "Raised" : "Cut"} ${A.pct(Math.abs(ch))}`) : null,
+        : isNum(ch) && Math.abs(ch) >= 0.005 ? h("span", { class: `small tnum ${signClass(ch)}` }, `${arrow(ch)} ${ch > 0 ? "Raised" : "Cut"} ${ch >= 1 ? A.riseText(ch).replace(" as much", "") : A.pct(Math.abs(ch))}`) : null,
       h("span", { class: "tnum pay-amt" }, A.price(p.amount)));
   }));
   const more = pays.length > SHOW ? h("button", { class: "linkish small", type: "button", style: "margin-top:8px",
@@ -1080,6 +1084,73 @@ function tabDividends(d, body) {
   body.append(g);
   fitDash();
 }
+
+/// ---------------------------------------------------------------- walkthrough
+// One slide per question: the real card from its tab, what that card is for, and what it says
+// for this company (A.walkSteps). Each needed tab is rendered off-screen once and its card is
+// moved into the slide, so a slide always matches the tab.
+let walkKey = null; // ← / → while the Walkthrough is on screen
+function tabWalk(d, body) {
+  const steps0 = A.walkSteps(d, { signals: signalsFor(d), bench: state.bench });
+  const pool = {};
+  const panelFor = (s) => {
+    if (!s.tab || !s.area) return null;
+    if (!(s.tab in pool)) { const b = h("div", {}); try { TAB_FN[s.tab](d, b); } catch (e) { console.warn(e); } pool[s.tab] = b; }
+    return [...pool[s.tab].querySelectorAll("section.card")].find((c) => c.style.getPropertyValue("--area").trim() === s.area) || null;
+  };
+  const steps = steps0.map((s) => ({ ...s, panel: panelFor(s) })).filter((s) => s.panel || s.says.length || s.recap);
+  const tabName = Object.fromEntries([...EQUITY_TABS, ...FUND_TABS]);
+  const key = `walk.${d.symbol}`;
+  let i = Math.min(Math.max(0, +pref(key) || 0), steps.length - 1);
+
+  const count = h("span", { class: "walk-count small muted tnum", "aria-live": "polite" });
+  const back = h("button", { class: "btn sm", type: "button", on: { click: () => go(i - 1) } }, "‹ Back");
+  const next = h("button", { class: "btn sm primary", type: "button", on: { click: () => go(i + 1) } }, "Next ›");
+  const dots = h("div", { class: "walk-dots" }, steps.map((s, k) => h("button", { type: "button", class: "walk-dot", title: s.title, "aria-label": `Step ${k + 1}: ${s.title}`, on: { click: () => go(k) } })));
+  const slide = h("div", { class: "walk-slide" });
+  const top = h("div", { class: "walk-top" }, back, h("div", { class: "walk-mid" }, count, dots), next);
+  body.append(h("div", { class: "walk" }, top, slide));
+
+  const recap = (s) => h("div", { class: "walk-recap" },
+    s.recap.map((r) => h("button", { type: "button", class: "walk-recap-row", on: { click: () => go(steps.findIndex((x) => x.id === r.id)) } },
+      h("span", {}, r.title), pill(r.tone, r.word))),
+    h("p", { class: "small muted", style: "margin:10px 0 0" }, "Tap a row to go back to that slide."));
+
+  function go(k) {
+    if (k < 0 || k >= steps.length) return;
+    const moved = k !== i;
+    i = k; pref(key, String(i));
+    const s = steps[i];
+    count.textContent = `Step ${i + 1} of ${steps.length}`;
+    back.disabled = i === 0;
+    next.disabled = i === steps.length - 1;
+    dots.querySelectorAll("button").forEach((b, n) => { b.classList.toggle("on", n === i); b.classList.toggle("seen", n < i); b.setAttribute("aria-current", n === i ? "step" : "false"); });
+    const after = steps[i + 1];
+    slide.classList.toggle("no-panel", !s.panel);
+    slide.replaceChildren(
+      h("div", { class: "walk-text card" },
+        h("div", { class: "walk-head" }, h("h2", {}, s.title), s.tone && s.tone !== "na" && s.word ? pill(s.tone, s.word) : null),
+        h("h3", { class: "walk-k" }, "What this is"),
+        h("p", { class: "ink2" }, s.what),
+        s.says.length ? [h("h3", { class: "walk-k" }, `What it says for ${A.shortName(d)}`), s.says.map((t) => h("p", {}, rich(t)))] : null,
+        s.recap ? recap(s) : null,
+        h("div", { class: "walk-foot" },
+          s.tab ? h("a", { class: "small", href: `#/t/${d.symbol}/${s.tab}` }, `See it on the ${tabName[s.tab]} tab ›`) : null,
+          after ? h("button", { class: "btn sm primary", type: "button", on: { click: () => go(i + 1) } }, `Next: ${after.title} ›`)
+            : h("button", { class: "btn sm", type: "button", on: { click: () => go(0) } }, "Start over"))),
+      ...(s.panel ? [h("div", { class: "walk-panel" }, s.panel)] : []));
+    if (moved && top.getBoundingClientRect().top < 0) top.scrollIntoView({ block: "start" });
+  }
+  walkKey = (e) => {
+    if (!body.isConnected) { walkKey = null; return; }
+    if (e.key === "ArrowRight") go(i + 1); else if (e.key === "ArrowLeft") go(i - 1);
+  };
+  go(i);
+}
+document.addEventListener("keydown", (e) => {
+  if (!walkKey || e.altKey || e.ctrlKey || e.metaKey || e.target.closest?.("input, textarea, select, [contenteditable]") || sheetEl) return;
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") walkKey(e);
+});
 
 // ---------------------------------------------------------------- valuation
 function tabValuation(d, body) {

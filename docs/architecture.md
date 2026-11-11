@@ -67,7 +67,7 @@ Peer methods are left out with < 4 usable peers or when the middle-half multiple
 
 ## Pages and features (`app.js`)
 
-Hash router: `#/`, `#/t/SYM/<tab>`, `#/learn`, `#/settings`. Equity tabs: Summary, Earnings, Financials, Dividends, Valuation, Peers, Analysts, News. ETF tabs: Summary, Holdings, Dividends, News. Tiny `h()` DOM builder.
+Hash router: `#/`, `#/t/SYM/<tab>`, `#/learn`, `#/settings`. Equity tabs: Summary, Walkthrough, Earnings, Financials, Dividends, Valuation, Peers, Analysts, News. ETF tabs: Summary, Walkthrough, Holdings, Dividends, News. Tiny `h()` DOM builder.
 
 **Rule-of-thumb badges.** `renderTicker` sets module-level `CUR` (cleared in `route()`); `termBtn(key)` appends a thumb from `A.judge(key, CUR)`. The popover and glossary sheet show the same verdict (`judgeBox`).
 
@@ -80,6 +80,8 @@ Hash router: `#/`, `#/t/SYM/<tab>`, `#/learn`, `#/settings`. Equity tabs: Summar
 **Price chart "vs" picker and Drops.** One `<select>`: No comparison / vs S&P 500 / vs Nasdaq 100 / vs both (pref `vs`). `A.BENCHES` in `analysis.js` holds names, fixed colors (SPY `--series-2`, QQQ `--series-3`) and the hover text. `A.tracksBench()` hides a benchmark on a fund that tracks the same index (VOO gets only Nasdaq 100). Drops plots `drawdowns().under` for the stock and each picked benchmark (`yMax: 0` caps the axis); `dropStory()` always uses SPY. The range chips, picker and Drops checkbox share a fixed row and the summary text sits below, so the controls never move (the user asked for this). In the % views each series' `tip(i, v)` adds the $ price to the hover.
 
 **Analyst rating changes.** First 15 shown in 3 columns, then "Show all". The left edge is colored by the firm's current Buy/Hold/Sell. Firm words (Overweight, Sector Perform…) map via `RATING_GROUP`, with hover meanings in `RATING_WORDS`.
+
+**Walkthrough tab.** `A.walkSteps()` lists the slides (business first, then price): each names a real card by `tab` + `area`, a general "what this is", and "what it says" (mostly the scorecard text). `tabWalk()` renders each needed tab off-screen once via `TAB_FN` and moves the card with that `--area` into the slide, so a renamed area silently drops the panel (the slide still shows its text). Slide index is kept per ticker in `localStorage`; ←/→ keys work while it's on screen. The wrap-up slide lists every slide's pill.
 
 ## Laptop one-screen layout
 

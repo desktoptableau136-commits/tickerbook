@@ -1283,6 +1283,8 @@ export function cashUses(d, years = 4) {
 // ------------------------------------------------------------------ dividends
 
 const DAY = 864e5;
+// A rise as a percentage, or as a multiple once it at least doubles ("25× as much" reads better than "+2400%").
+export const riseText = (r, digits = 1) => (r >= 1 ? `${(r + 1) >= 10 ? Math.round(r + 1) : num(r + 1, 1)}× as much` : pct(r, { digits }));
 export const FREQ_WORD = { 12: "every month", 4: "every quarter", 2: "twice a year", 1: "once a year" };
 const PAY_WORD = { 12: "monthly", 4: "quarterly", 2: "half-yearly", 1: "yearly" };
 const median = (xs) => {
@@ -1443,11 +1445,12 @@ export function dividendStory(d) {
       : { key: "debt", label: "Debt load", term: "netDebtToEbitda", status: "na", word: "No data", value: "—", text: "Not enough balance-sheet data." });
 
     const tr = { key: "record", label: "Track record", term: "dividendStreak" };
+    const streakWords = `${streak}${streakAtLeast ? "+" : ""} year${streak === 1 && !streakAtLeast ? "" : "s"}`;
     if (lastCut && yearsSinceCut < 3) Object.assign(tr, { status: "bad", word: "Cut recently", value: `Cut in ${lastCut.year}`, text: `It cut the dividend in ${date(lastCut.date, { month: "short", year: "numeric" })} (${cutText(lastCut)}). Recent cuts tend to signal the business is under pressure.` });
     else if (lastCut && yearsSinceCut < 10) Object.assign(tr, { status: "ok", word: "Cut in the last 10 years", value: `Last cut ${lastCut.year}`, text: `It cut the dividend in ${lastCut.year} (${cutText(lastCut)}) and ${streak ? `has raised it ${streak} year${streak === 1 ? "" : "s"} in a row since` : "hasn't cut since"}.` });
     else if (recordYears < 10 && !lastCut) Object.assign(tr, { status: "na", word: "Too new to judge", value: `Paying since ${sinceYear}`, text: `${name} only started paying in ${sinceYear}, so there's no long record yet.${streak ? ` It has raised it every year so far.` : ""}` });
     else Object.assign(tr, { status: "good", word: streak >= 10 ? "Long record of raises" : "No cuts in 10+ years", value: streak ? `${streak}${streakAtLeast ? "+" : ""} year${streak === 1 && !streakAtLeast ? "" : "s"} of raises` : `No cut since ${lastCut ? lastCut.year : `at least ${firstYear}`}`,
-      text: lastCut ? `No cut since ${lastCut.year}${streak ? `, and ${streak} years of raises in a row` : ""}.` : `No cut in the ${Math.floor(recordYears)} years of payments on record${streak ? `, with ${streak}${streakAtLeast ? "+" : ""} years of raises in a row` : ""}.` });
+      text: lastCut ? `No cut since ${lastCut.year}${streak ? `, and ${streakWords} of raises in a row` : ""}.` : `No cut in the ${Math.floor(recordYears)} years of payments on record${streak === 1 && !streakAtLeast ? ", with one raise in the last 18 months" : streak ? `, with ${streakWords} of raises in a row` : ""}.` });
     checks.push(tr);
 
     const g = growth[5] || growth[3], gn = growth[5] ? 5 : 3;
@@ -1465,7 +1468,11 @@ export function dividendStory(d) {
   else if (announced) lines.push(`${name} pays ${price(lastReg.amount)} a share ${FREQ_WORD[freq]} and has **announced a raise to ${price(announced.each)}** (${pct(announced.chg, { sign: true })}), about **${price(rate)} a year**. At today's ${price(px)} price that's a **${pct(yld, { digits: 2 })} yield**.`);
   else lines.push(`${name} pays **${price(lastReg.amount)} a share ${FREQ_WORD[freq]}**, about **${price(rate)} a year**. At today's ${price(px)} price that's a **${pct(yld, { digits: 2 })} yield**.`);
   if (!isFund) {
-    if (streak >= 1) lines.push(`It has **raised its dividend ${sinceYear >= thisYear - streak ? `every year since it started paying in ${sinceYear}` : `${streak}${streakAtLeast ? "+" : ""} year${streak === 1 ? "" : "s"} in a row`}**${streakAtLeast ? ` (our record starts in ${firstYear})` : ""}${lastRaise ? `; the latest raise was ${pct(lastRaise.toYearly / lastRaise.fromYearly - 1, { digits: 1 })}, in ${date(lastRaise.date, { month: "short", year: "numeric" })}` : ""}.`);
+    const raiseBy = lastRaise ? lastRaise.toYearly / lastRaise.fromYearly - 1 : null;
+    const raiseAmt = lastRaise ? (lastRaise.freqChange ? `${price(lastRaise.fromYearly)} to ${price(lastRaise.toYearly)} a year` : `${price(lastRaise.from)} to ${price(lastRaise.to)} a payment`) : "";
+    const raiseWhen = lastRaise ? date(lastRaise.date, { month: "short", year: "numeric" }) : "";
+    if (streak === 1 && !streakAtLeast && lastRaise && sinceYear < thisYear - 1) lines.push(`It **raised its dividend in ${raiseWhen}**, from ${raiseAmt}${raiseBy >= 1 ? ` (**${riseText(raiseBy)}**)` : ` (${pct(raiseBy, { digits: 1, sign: true })})`}. Before that, it went more than 18 months without a raise.`);
+    else if (streak >= 1) lines.push(`It has **raised its dividend ${sinceYear >= thisYear - streak ? `every year since it started paying in ${sinceYear}` : `${streak}${streakAtLeast ? "+" : ""} year${streak === 1 ? "" : "s"} in a row`}**${streakAtLeast ? ` (our record starts in ${firstYear})` : ""}${lastRaise ? `; the latest raise${raiseBy >= 1 ? `, in ${raiseWhen}, took it from ${raiseAmt} (**${riseText(raiseBy)}**)` : ` was ${pct(raiseBy, { digits: 1 })}, in ${raiseWhen}`}` : ""}.`);
     else if (lastRaise) lines.push(`Its last raise was in ${date(lastRaise.date, { month: "short", year: "numeric" })}${lastCut && lastCut.date > lastRaise.date ? "" : "; it hasn't raised it since"}.`);
     if (lastCut) lines.push(`It last **cut its dividend in ${lastCut.year}** (${cutText(lastCut)}).`);
     else lines.push(`It has paid a dividend since ${sinceYear}, with **no cuts** in the ${Math.max(1, Math.floor(recordYears))} years on record.`);
@@ -1474,13 +1481,124 @@ export function dividendStory(d) {
   }
   const g5 = growth[5] || growth[3];
   if (g5) lines.push(`Over ${growth[5] ? 5 : 3} years the yearly payout grew **${pct(g5.cagr, { sign: true })} a year**${growth[10] ? `, and ${pct(growth[10].cagr, { sign: true })} a year over 10` : ""}.`);
-  if (vsUsual) lines.push(vsUsual === "high" && growth[1]?.cagr > 0.25 ? `Today's yield is **higher than usual** for ${name} (its middle over ${usual.years} years: ${pct(usual.mid, { digits: 2 })}), mainly because the dividend itself rose ${pct(growth[1].cagr, { digits: 0 })} in the last year.`
+  if (vsUsual) lines.push(vsUsual === "high" && growth[1]?.cagr > 0.25 ? `Today's yield is **higher than usual** for ${name} (its middle over ${usual.years} years: ${pct(usual.mid, { digits: 2 })}), mainly because the dividend itself ${growth[1].cagr >= 1 ? `is ${riseText(growth[1].cagr)} as a year ago` : `rose ${pct(growth[1].cagr, { digits: 0 })} in the last year`}.`
     : vsUsual === "high" ? `Today's yield is **higher than usual** for ${name} (its middle over ${usual.years} years: ${pct(usual.mid, { digits: 2 })}). That happens when the price falls faster than the dividend: either a bargain or a sign the market doubts the dividend.`
     : vsUsual === "low" ? `Today's yield is **lower than usual** for ${name} (its middle over ${usual.years} years: ${pct(usual.mid, { digits: 2 })}), mostly because the price has risen faster than the dividend.`
     : `Today's yield is **in its usual range** (${pct(usual.lo, { digits: 1 })}–${pct(usual.hi, { digits: 1 })} over ${usual.years} years).`);
 
   return { pays: true, name, isFund, freq, announced, paidRate, freqWord: FREQ_WORD[freq], payWord: PAY_WORD[freq], last, lastReg, rate, yld, growth, raises, cuts, streak, streakAtLeast, lastCut, lastRaise,
     recordYears, sinceYear, firstYear, byYear, yh, usual, yNow, vsUsual, ret, income, exDate, payDate, today, checks, tally, verdict, lines, payments: all };
+}
+
+/// ------------------------------------------------------------------ walkthrough
+
+// The slides of the Walkthrough tab, in the order an investor usually reads a company:
+// the business first, then the price. Each names a real card (tab + area) to show, says
+// in general what that card is for ("what"), and what it says for this company ("says").
+// `sigKey` ties a slide to a scorecard row for its pill and the wrap-up.
+export function walkSteps(d, { signals = [], bench } = {}) {
+  const name = shortName(d), isFund = d.type === "ETF";
+  const S = Object.fromEntries(signals.map((s) => [s.key, s]));
+  const txt = (k) => (S[k] && S[k].status !== "na" ? S[k].text : null);
+  const steps = [];
+  const add = (o) => steps.push({ ...o, says: (o.says || []).filter(Boolean) });
+
+  // the scorecard
+  const ov = overall(signals);
+  const list = (a) => (a.length > 1 ? `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}` : a[0]);
+  const good = signals.filter((s) => s.status === "good").map((s) => s.label.toLowerCase());
+  const bad = signals.filter((s) => s.status === "bad").map((s) => s.label.toLowerCase());
+  add({ id: "score", tab: "summary", area: "verdict", title: "Start with the quick read",
+    what: `This card runs ${signals.length} simple checks and tallies them into a score out of 100. Think of it as a map of where to look, not a buy-or-sell call. The next slides go through the checks one at a time.`,
+    says: [ov.score != null ? `${name} scores **${ov.score}** (${ov.lean.toLowerCase()}): ${ov.good} of ${ov.total} checks pass${ov.bad ? ` and ${ov.bad} fail` : ""}.` : null,
+      good.length ? `Strong: ${list(good)}.` : null, bad.length ? `Worth a closer look: ${list(bad)}.` : null] });
+
+  // the price
+  const dates = d.prices?.dates || [], close = d.prices?.close || [];
+  const spy = !tracksBench(d, "SPY") ? bench?.SPY : null;
+  const move = (n) => {
+    const i = Math.max(0, close.length - 1 - n), last = close.length - 1, mine = close[last] / close[i] - 1;
+    const yrs = Math.round((Date.parse(dates[last]) - Date.parse(dates[i])) / 3.156e10);
+    const b = spy ? benchMove(spy, dates[i], dates[last]) : null;
+    return `Over ${yrs <= 1 ? "the last year" : `the last ${yrs} years`} ${isFund ? "the fund" : "the stock"} ${Math.abs(mine) < 0.005 ? "**was about flat**" : `**${mine >= 0 ? "rose" : "fell"} ${pct(Math.abs(mine), { digits: 0 })}**`}` +
+      (isNum(b) ? `, vs ${b >= 0 ? "+" : "−"}${pct(Math.abs(b), { digits: 0 })} for the S&P 500, so it ${mine > b + 0.02 ? "beat" : mine < b - 0.02 ? "lagged" : "kept pace with"} the market.` : ".");
+  };
+  const dr = dropStory(d, spy);
+  add({ id: "price", tab: "summary", area: "chart", title: `How has the ${isFund ? "fund" : "stock"} done?`, sigKey: "trend",
+    what: "The price chart shows what owners actually got. Compare it with the S&P 500 using the “vs” picker. A falling price isn't bad on its own; it matters when the business is getting worse too, which the next slides check.",
+    says: [close.length > 260 ? move(252) : null, close.length > 1000 ? move(Infinity) : null, dr ? dr.lines[dr.lines.length - 1] : null,
+      isFund ? txt("returns") : null, txt("trend")] });
+
+  if (isFund) {
+    add({ id: "cost", tab: "summary", area: "stats", title: "What does it cost to own?", sigKey: "cost",
+      what: "A fund charges a yearly fee (the expense ratio), taken out of its value automatically. Low fees matter because they compound. The P/E of its holdings tells you how pricey the companies inside are.",
+      says: [txt("cost"), txt("valuation")] });
+    add({ id: "holdings", tab: "holdings", area: "top", title: "How spread out is it?", sigKey: "concentration",
+      what: "An index fund owns many companies, weighted by size. When the biggest ten are a large share of it, the fund rises and falls with a few names. Orange bars are stocks you already watch.",
+      says: [txt("concentration")] });
+  } else {
+    const f = d.fundamentals || {};
+    add({ id: "growth", tab: "financials", area: "rev", title: "Is the business growing?", sigKey: "growth",
+      what: "Revenue is everything customers paid. Over the long run a stock follows its profits, and profits need sales to grow. Read the direction over several bars, not one. Many businesses are seasonal, so compare a quarter with the same quarter a year earlier.",
+      says: [txt("growth")] });
+    add({ id: "profit", tab: "financials", area: "margins", title: "How much of each sale does it keep?", sigKey: "profit",
+      what: "A margin is profit as a share of sales. Gross is after making the product, operating is after running the business, and net is after interest and taxes. Steady or rising lines suggest pricing power; falling lines mean costs are catching up.",
+      says: [txt("profit")] });
+    const cu = cashUses(d), fj = judge("freeCashflow", d);
+    add({ id: "cash", tab: "financials", area: "fcf", title: "Is it producing real cash?",
+      what: "Profit is an accounting figure. Free cash flow is the cash actually left after paying for equipment and upkeep (capex). It's what pays for dividends, buybacks and paying down debt, so steady positive bars are what you want.",
+      says: [cu ? cu.lines[0] : null, cu ? cu.lines[1] : null,
+        fj ? `Over the last 12 months: ${money(f.freeCashflow)} of free cash flow ÷ ${money(d.quote?.marketCap)} market value = a **${fj.value}** (${fj.text.charAt(0).toLowerCase() + fj.text.slice(1)}).` : null],
+      tone: fj?.tone, word: fj ? { good: "Generous", ok: "Positive", bad: "Burning cash" }[fj.tone] : null });
+    add({ id: "debt", tab: "financials", area: "bal", title: "How much does it owe?", sigKey: "health",
+      what: "Net debt ÷ EBITDA asks how many years of operating earnings it would take to pay off the debt, after using its cash. Under 1.5× is comfortable and over 3.5× is heavy. Debt makes good years better and bad years worse.",
+      says: (() => {
+        // the card itself carries the leverage notes, so the slide only points to them
+        const t = txt("health"), ln = leverageNotes(d);
+        if (!t || !ln) return [t];
+        return [t.replace(` ${ln.lines.join(" ").replace(/\*\*/g, "")}`, ""),
+          `That ratio may overstate it. The note on the card explains why it ${ln.company ? `differs from the **${num(ln.company.ratio, 1)}×** the company reports` : ln.est ? `works out closer to **≈${num(ln.est.ratio, 1)}×** the way the company counts` : "reads high after a recent jump in debt"}.`];
+      })() });
+    const es = earningsStory(d);
+    add({ id: "track", tab: "earnings", area: "eps", title: "Does it deliver what's expected?", sigKey: "track",
+      what: "Before each report, analysts publish an earnings-per-share estimate; this chart shows estimate vs actual. Big companies beat most of the time, so a beat is normal. A run of misses is the real signal.",
+      says: [es[0]?.text, txt("track")] });
+    add({ id: "revisions", tab: "earnings", area: "trend", title: "Are expectations rising or falling?", sigKey: "revisions",
+      what: "Analysts update their forecasts as news comes in. The direction of those changes often matters more than the forecast itself: rising estimates tend to lift a stock, and cuts tend to weigh on it.",
+      says: [txt("revisions")] });
+  }
+
+  // dividends (both kinds)
+  const ds = dividendStory(d);
+  add({ id: "dividend", tab: "dividends", area: ds?.pays ? (ds.isFund ? "brief" : "safety") : null, title: "What does it pay you?",
+    what: "A dividend is cash paid to you for each share you own. The yield is a year of dividends ÷ the share price. For dividend investing, what matters is whether cash flow covers it and whether it keeps growing.",
+    says: ds?.pays ? [...ds.lines.slice(0, ds.isFund ? 1 : 3), ds.verdict ? `The safety checks read **${ds.verdict.label.toLowerCase()}**: ${ds.tally.good} of ${ds.tally.total} pass. Tap a row on the card for the math.` : null]
+      : [`${name} doesn't pay a dividend.`, (() => {
+        const cu = cashUses(d);
+        return cu?.buybacks > 0 ? `Instead it hands cash back by **buying back its own shares: ${money(cu.buybacks)}** over ${cu.span}. With fewer shares, each one owns a bigger slice of the company, so owners benefit through the price rather than a payment.`
+          : "Companies that don't pay one usually reinvest the cash in growth, so any return comes from the share price.";
+      })()],
+    tone: ds?.verdict?.tone, word: ds?.verdict?.label });
+
+  if (!isFund) {
+    const methods = valuationMethods(d, valuationInputs(d));
+    const b = blend(methods, Object.fromEntries(methods.map((x) => [x.id, x.include && isNum(x.value)]))), px = d.quote?.price, conf = confidence(b);
+    add({ id: "value", tab: "valuation", area: "ratios", title: "Is the price reasonable?", sigKey: "valuation",
+      what: "Everything so far was about the business. Valuation asks what you're paying for it. P/E is the price ÷ a year's earnings per share: roughly how many years of today's profit you pay for. A high P/E can be fine if profits grow fast, which is what PEG adjusts for.",
+      says: [txt("valuation"), b && isNum(px) ? `With the default assumptions, ${b.n} ways of estimating a fair value average **${price(b.avg)}** (from ${price(b.low)} to ${price(b.high)}), ${pct(Math.abs(b.avg / px - 1), { digits: 0 })} ${b.avg >= px ? "above" : "below"} today's ${price(px)}.${conf ? ` ${conf.label}${conf.tone === "bad" ? ", so take the average with a grain of salt" : ""}.` : ""} The Valuation tab lets you change the assumptions.` : null] });
+    add({ id: "analysts", tab: "analysts", area: "targets", title: "What do the professionals think?", sigKey: "analysts",
+      what: "A price target is where an analyst thinks the stock will trade in 12 months. Targets tend to follow the price, so use them as a mood check rather than a forecast.",
+      says: [txt("analysts")] });
+  }
+
+  // the wrap-up: every slide that carries a verdict
+  for (const s of steps) if (s.sigKey && S[s.sigKey]) { s.tone ??= S[s.sigKey].status; s.word ??= S[s.sigKey].word; }
+  add({ id: "wrap", tab: null, area: null, title: "Putting it together",
+    what: isFund
+      ? "For an index fund, three questions cover most of it: is it cheap to own, is it spread out enough for you, and has it done what its index promises? There's no business to judge, just the basket."
+      : "Three questions cover most of it. Is the business healthy (growth, margins, cash, debt)? Is it delivering (earnings, estimates)? And is the price asking too much? Tickerbook can't tell you whether to buy; that depends on your goals and how long you'll hold.",
+    recap: steps.filter((s) => s.tone && s.tone !== "na").map((s) => ({ id: s.id, title: s.title, tone: s.tone, word: s.word })) });
+  return steps;
 }
 
 // ------------------------------------------------------------------ what changed since your last look
@@ -1533,7 +1651,7 @@ export function changesSince(d, b, score) {
     if (bought > 0) out.push({ tone: "good", text: `Insiders bought ${moneyShort(bought)}`, tab: "analysts" });
     if (sold > 0) out.push({ tone: "note", text: `Insiders sold ${moneyShort(sold)}`, tab: "analysts" });
     const dc = rel(now.div, b.div);
-    if (isNum(dc) && Math.abs(dc) >= 0.005) out.push({ tone: dc > 0 ? "good" : "bad", text: `Dividend ${dc > 0 ? "raised" : "cut"} ${pct(Math.abs(dc))} to ${price(now.div)} a share`, sub: `from ${price(b.div)} a payment`, tab: "dividends" });
+    if (isNum(dc) && Math.abs(dc) >= 0.005) out.push({ tone: dc > 0 ? "good" : "bad", text: dc >= 1 ? `Dividend raised to ${price(now.div)} a share (${riseText(dc)})` : `Dividend ${dc > 0 ? "raised" : "cut"} ${pct(Math.abs(dc))} to ${price(now.div)} a share`, sub: `from ${price(b.div)} a payment`, tab: "dividends" });
   } else if (isNum(now.er) && isNum(b.er) && Math.abs(now.er - b.er) >= 0.00005) {
     out.push({ tone: now.er < b.er ? "good" : "bad", text: `Fee ${now.er < b.er ? "cut" : "raised"} to ${pct(now.er, { digits: 2 })}`, tab: "summary" });
   }
