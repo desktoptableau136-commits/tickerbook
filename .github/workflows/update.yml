@@ -92,6 +92,15 @@ jobs:
         with:
           ref: main
 
+      # Give each CSS/JS file a version tag so browsers fetch new code right after a deploy
+      # instead of mixing cached old files with new ones. (Data files are cache-busted in app.js.)
+      - name: Stamp asset versions
+        run: |
+          V=$(git rev-parse --short HEAD)
+          sed -i -E "s#(assets/[a-z]+\.(js|css))\"#\1?v=$V\"#g" index.html
+          sed -i -E "s#(from \"\./[a-z]+\.js)\"#\1?v=$V\"#g" assets/*.js
+          grep -c "?v=$V" index.html assets/app.js
+
       - name: Package site
         uses: actions/upload-pages-artifact@v5
         with:
