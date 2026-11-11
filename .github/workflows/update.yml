@@ -1,0 +1,102 @@
+name: Update data and deploy
+
+# The dashboard finds its own run by the [request id] in this name.
+run-name: >-
+  ${{ github.event_name == 'workflow_dispatch'
+      && format('{0} {1} [{2}]', inputs.action, inputs.ticker, inputs.request_id)
+      || (github.event_name == 'schedule' && 'Scheduled daily update' || 'Deploy site') }}
+
+on:
+  schedule:
+    - cron: "30 21 * * 1-5"   # weekdays, ~30 min after the US market closes (UTC)
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "refresh, add, remove or tag"
+        type: choice
+        options: [refresh, add, remove, tag]
+        default: refresh
+      ticker:
+        description: "Ticker symbol (for add / remove / tag)"
+        required: false
+        default: ""
+      tag:
+        description: "owned, watching or researching"
+        type: choice
+        options: [researching, watching, owned]
+        default: researching
+      request_id:
+        description: "Set by the dashboard so it can track progress"
+        required: false
+        default: "manual"
+  push:
+    branches: [main]
+    paths-ignore: ["data/**", "watchlist.json"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: update-and-deploy
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch market data
+        env:
+          ACTION: ${{ inputs.action || 'refresh' }}
+          TICKER: ${{ inputs.ticker }}
+          TAG: ${{ inputs.tag || 'researching' }}
+          REQUEST_ID: ${{ inputs.request_id || github.run_id }}
+          # optional: "Tickerbook you@example.com" (Settings > Variables). The SEC asks bots to identify themselves.
+          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
+        run: python scripts/fetch.py --action "$ACTION" --ticker "$TICKER" --tag "$TAG" --request-id "$REQUEST_ID"
+
+      - name: Save changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data watchlist.json
+          if git diff --cached --quiet; then echo "No changes."; exit 0; fi
+          git commit -m "Data update: ${{ github.event_name }} $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
+          exit 1
+
+  deploy:
+    needs: fetch
+    if: always() && (needs.fetch.result == 'success' || needs.fetch.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out latest
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Package site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Publish to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

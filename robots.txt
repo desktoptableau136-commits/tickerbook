@@ -1,0 +1,3 @@
+# Personal dashboard. Please don't crawl, index, archive or train on it.
+User-agent: *
+Disallow: /
