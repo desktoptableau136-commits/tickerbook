@@ -9,15 +9,15 @@
       "tag": "watching"
     },
     {
-      "symbol": "VOO",
-      "tag": "researching"
-    },
-    {
       "symbol": "CHTR",
       "tag": "watching"
     },
     {
       "symbol": "NVDA",
+      "tag": "researching"
+    },
+    {
+      "symbol": "VOO",
       "tag": "researching"
     },
     {
