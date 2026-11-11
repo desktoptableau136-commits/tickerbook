@@ -43,7 +43,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: update-and-deploy
+  group: tickerbook-update  # renamed 2026-11-11: a GitHub-side stuck run held the old group
   cancel-in-progress: false
 
 jobs:
