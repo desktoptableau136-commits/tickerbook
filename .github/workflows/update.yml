@@ -47,8 +47,12 @@ jobs:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
+      # A run that waited in the queue must start from the latest data, not the commit it was
+      # triggered on, or its save clashes with the run that went before it.
       - name: Check out repo
         uses: actions/checkout@v7
+        with:
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -76,7 +80,8 @@ jobs:
           git add data watchlist.json
           if git diff --cached --quiet; then echo "No changes."; exit 0; fi
           git commit -m "Data update: ${{ github.event_name }} $(date -u +%Y-%m-%dT%H:%MZ)"
-          for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
+          # if another run saved meanwhile, keep this run's version of any file both changed
+          for i in 1 2 3; do git pull --rebase -X theirs && git push && exit 0; git rebase --abort 2>/dev/null; sleep 5; done
           exit 1
 
   deploy:

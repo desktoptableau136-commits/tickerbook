@@ -134,7 +134,9 @@ export async function runUpdate({ action, ticker = "", tag = "researching" }, on
         if (job.status === "completed") {
           if (job.conclusion !== "success") {
             const failed = (job.steps || []).find((x) => x.conclusion === "failure");
-            throw new Error(`The update failed${failed ? ` at "${failed.name}"` : ""}. Yahoo may be rate-limiting; try again in a few minutes.`);
+            throw new Error(failed?.name === "Save changes"
+              ? "The data was fetched but couldn't be saved, usually because another update was saving at the same moment. Try again."
+              : `The update failed${failed ? ` at "${failed.name}"` : ""}. Yahoo may be rate-limiting; try again in a few minutes.`);
           }
           break;
         }
