@@ -104,3 +104,5 @@ Card content sits in `.card-body`, so sticky table headers stay flush. Earnings 
 - **Queuing:** runs queue in one concurrency group. `fetch` checks out `ref: main`, because a queued run would otherwise start from its trigger commit and clash on save. On a save clash it rebases with `-X theirs`.
 - **Inputs:** passed via `env`, never interpolated into `run:`.
 - **Asset stamping:** the deploy job stamps `?v=<sha>` onto CSS/JS. New module imports must use the `from "./x.js"` form to get stamped.
+
+**When Actions runs are stuck in the queue** (GitHub-side; they can refuse to cancel): refresh locally with `SEC_USER_AGENT` set from `gh variable get SEC_USER_AGENT`, then commit and push `data/`. A data-only push doesn't deploy (`paths-ignore`), so the site only picks it up on the next non-data push or a workflow run that gets through.
