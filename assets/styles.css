@@ -258,7 +258,7 @@ td.sym a { font-weight: 700; color: var(--ink); }
 .tab:hover { color: var(--ink); text-decoration: none; }
 
 .cols { display: grid; gap: 12px; grid-template-columns: 1fr; }
-.cols > .card + .card { margin-top: 0; }
+.cols > .card + .card, .grid > .card + .card { margin-top: 0; }
 
 /* verdict */
 .verdict { display: flex; align-items: center; gap: 16px; }
