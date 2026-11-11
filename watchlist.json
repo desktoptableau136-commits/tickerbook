@@ -1,8 +1,24 @@
 {
   "tickers": [
-    { "symbol": "GOOG", "tag": "watching" },
-    { "symbol": "MSFT", "tag": "watching" },
-    { "symbol": "VOO",  "tag": "watching" },
-    { "symbol": "CHTR", "tag": "watching" }
+    {
+      "symbol": "GOOG",
+      "tag": "watching"
+    },
+    {
+      "symbol": "MSFT",
+      "tag": "watching"
+    },
+    {
+      "symbol": "VOO",
+      "tag": "watching"
+    },
+    {
+      "symbol": "CHTR",
+      "tag": "watching"
+    },
+    {
+      "symbol": "NVDA",
+      "tag": "researching"
+    }
   ]
 }
