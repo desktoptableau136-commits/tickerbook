@@ -391,9 +391,24 @@ function renderTicker(sym, tab) {
     h("span", { class: "tabs-note" }, "Learning tool · not financial advice"));
 
   const body = h("div", {});
-  view.append(head, archiveNote(d, sym), changesBanner(d) || "", tabBar, body);
+  view.append(head, archiveNote(d, sym), newListingNote(d), changesBanner(d) || "", tabBar, body);
   TAB_FN[tab](d, body);
   body.append(h("p", { class: "disclaimer" }, "For learning and research only. Not financial advice."));
+}
+
+// Recently listed: why several checks say "too new to judge" (the same rules apply to every stock).
+function newListingNote(d) {
+  const nl = A.newListing(d);
+  if (!nl) return "";
+  const g = A.expectedGrowth(d);
+  const thin = [nl.reported < 4 ? `the earnings record (${nl.reported} report${nl.reported === 1 ? "" : "s"} so far; it needs 4)` : null,
+    nl.tradingDays < 200 ? `the price trend (${nl.tradingDays} trading days; a 200-day average needs 200)` : null].filter(Boolean);
+  const span = nl.months < 12 ? "1- or 5-year price comparison" : "5-year price comparison";
+  return h("div", { class: "notice arch-note" },
+    h("b", {}, "Recently listed: "), `${A.shortName(d)} began trading on ${A.date(nl.listed)} (${nl.months} month${nl.months === 1 ? "" : "s"} ago). `,
+    thin.length ? `Some checks need more history, so they're left out of the score: ${thin.join(" and ")}. There's no ${span} yet either. ` : `There's no ${span} yet. `,
+    isNum(g) && g > A.WILD_GROWTH ? `Analysts expect about ${A.pct(g, { digits: 0 })} yearly earnings growth, which comes from a tiny base, so valuation is judged on the P/E alone. ` : "",
+    "New companies' numbers and estimates tend to swing a lot in their first couple of years, so read everything here as early and rough.");
 }
 
 // Archived: when and how stale. Gaps in our own daily snapshots (several archive/unarchive
@@ -452,8 +467,10 @@ function priceCard(d) {
     box.replaceChildren();
     const fmtX = (s, n) => A.date(s, n > 140 ? { month: "short", year: "2-digit" } : { month: "short", day: "numeric" });
     const tipTitle = (s) => A.date(s);
-    const span = { "1M": "the last month", "6M": "the last 6 months", YTD: "the year so far", "1Y": "the last year", "5Y": "5 years" }[range];
-    perf.replaceChildren(h("span", { class: signClass(chg) }, `${d.symbol} ${A.pct(chg, { sign: true })}`), ` over ${span}`);
+    // a recently listed stock's longer ranges start at its first trading day, so say that
+    const short = start === 0 && A.newListing(d);
+    const span = short ? `since it began trading on ${A.date(dates[0])}` : `over ${{ "1M": "the last month", "6M": "the last 6 months", YTD: "the year so far", "1Y": "the last year", "5Y": "5 years" }[range]}`;
+    perf.replaceChildren(h("span", { class: signClass(chg) }, `${d.symbol} ${A.pct(chg, { sign: true })}`), ` ${span}`);
     const c = h("div", {});
     if (drops) {
       // how far below its running high (over all the history we have) it was each day

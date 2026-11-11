@@ -83,6 +83,18 @@ export function expectedGrowth(d) {
   return isNum(ltg) ? ltg : isNum(next) ? next : null;
 }
 
+// Recently listed: our price history covers 5 years, so one that starts later began trading then.
+// Only flagged for the first 2 years. Several checks need more history than that gives.
+export const WILD_GROWTH = 1; // expected yearly EPS growth above 100% is too extreme for a PEG to mean much
+export function newListing(d) {
+  const dates = d.prices?.dates || [];
+  if (dates.length < 2 || d.type === "ETF") return null;
+  const first = dates[0], days = (Date.parse(dates[dates.length - 1]) - Date.parse(first)) / 864e5;
+  if (days > 730) return null;
+  const reported = (d.earnings?.history || []).filter((x) => isNum(x.epsActual)).length;
+  return { listed: first, months: Math.max(1, Math.round(days / 30.44)), tradingDays: dates.length, reported };
+}
+
 function lastQuarterBeats(d) {
   const h = (d.earnings?.history || []).slice(-4);
   return { n: h.length, beats: h.filter((x) => isNum(x.surprise) && x.surprise > 0).length };
@@ -102,15 +114,18 @@ export function equitySignals(d) {
   // 1. Valuation vs growth
   const g = expectedGrowth(d);
   const fpe = v.forwardPE;
-  const peg = isNum(fpe) && isNum(g) && g > 0 ? fpe / (g * 100) : v.peg;
+  const wild = isNum(g) && g > WILD_GROWTH;
+  const peg = wild ? null : isNum(fpe) && isNum(g) && g > 0 ? fpe / (g * 100) : v.peg;
   if (!isNum(fpe) || fpe <= 0) {
     out.push(sig("valuation", "Valuation", "na", "Unclear", "—",
       "No meaningful forward P/E (expected earnings are negative or missing), so we can't judge price against profit.", "forwardPE"));
   } else {
     const st = !isNum(peg) ? (fpe < 18 ? "good" : fpe < 30 ? "ok" : "bad") : peg < 1.2 ? "good" : peg < 2 ? "ok" : "bad";
     const word = { good: "Reasonable", ok: "Fair", bad: "Pricey" }[st];
-    const gTxt = isNum(g) ? ` with about ${pct(g, { digits: 0 })} expected yearly earnings growth` : "";
-    const meaning = {
+    const gTxt = isNum(g) && !wild ? ` with about ${pct(g, { digits: 0 })} expected yearly earnings growth` : "";
+    const meaning = wild ? {
+      good: "That's low for any company.", ok: "That's above the long-run market average of about 16–18.", bad: "That's expensive: the price already assumes years of very fast growth.",
+    }[st] + ` Analysts expect about ${pct(g, { digits: 0 })} a year earnings growth, which usually means growth from a tiny starting point. That can't last, so the price isn't judged against it (the PEG ratio would make almost any price look cheap); this uses the P/E alone (under 18 reasonable, over 30 pricey).` : {
       good: "You're not paying much for the growth on offer. If the estimates hold, there's room for the stock to rise.",
       ok: "The price looks roughly in line with expected growth. Returns will mostly depend on the company delivering.",
       bad: "The price already assumes a lot of growth. Any disappointment could hit the stock hard.",
@@ -170,7 +185,11 @@ export function equitySignals(d) {
 
   // 5. Earnings track record
   const { n, beats } = lastQuarterBeats(d);
-  if (n) {
+  const nl = newListing(d);
+  if (n && n < 4) {
+    out.push(sig("track", "Earnings record", "na", "Too new to judge", `${beats} of ${n} beat${n === 1 ? "" : "s"}`,
+      `Beat analyst EPS estimates in ${beats} of ${n} quarter${n === 1 ? "" : "s"}${nl ? " since listing" : ""}. That's too few to call a track record (this check needs 4), and early estimates for a new company are often set low.`, "epsSurprise"));
+  } else if (n) {
     const st = beats === n ? "good" : beats >= n / 2 ? "ok" : "bad";
     out.push(sig("track", "Earnings record", st, { good: "Reliable", ok: "Mixed", bad: "Misses" }[st], `${beats} of ${n} beats`,
       `Beat analyst EPS estimates in ${beats} of the last ${n} quarters. ${{
@@ -207,7 +226,10 @@ export function equitySignals(d) {
   }
 
   // 8. Price trend
-  if (isNum(q.ma200) && isNum(q.price)) {
+  if (nl && nl.tradingDays < 200 && isNum(q.price)) {
+    out.push(sig("trend", "Price trend", "na", "Too new to judge", `${nl.tradingDays} trading days`,
+      `It has traded for only ${nl.tradingDays} days since listing, and a 200-day average needs 200. Prices right after a listing also tend to swing more than usual.`, "ma200"));
+  } else if (isNum(q.ma200) && isNum(q.price)) {
     const vs = q.price / q.ma200 - 1;
     const st = vs >= 0 ? "good" : vs > -0.1 ? "ok" : "bad";
     out.push(sig("trend", "Price trend", st, { good: "Uptrend", ok: "Soft", bad: "Downtrend" }[st], `${pct(vs, { sign: true })} vs 200-day avg`,
@@ -460,6 +482,9 @@ export function modelWarnings(d, m, fv) {
       `. With that much debt, a small drop in the business can wipe out a big chunk of profit for shareholders. This model doesn't capture that risk, and it's a big reason the market pays such a low P/E.` +
       (leverageNotes(d) ? ` (Net debt is ${num(lev.ratio, 1)}× EBITDA by our count; ${leverageNotes(d).short}. See Financials → Balance sheet.)` : ""));
   }
+  const nl = newListing(d), g = expectedGrowth(d);
+  if (nl) out.push(`Recently listed: ${shortName(d)} began trading ${nl.months} month${nl.months === 1 ? "" : "s"} ago and has reported ${nl.reported} quarter${nl.reported === 1 ? "" : "s"} as a public company. These methods lean on a few quarters of results and on estimates that tend to swing a lot early on, so treat the range as very rough.`);
+  if (isNum(g) && g > WILD_GROWTH) out.push(`Analysts expect about ${pct(g, { digits: 0 })} yearly earnings growth. Growth that fast comes from a tiny base and slows quickly, so any method that carries it forward for years will overstate the value.`);
   if (isNum(m.currentPE) && m.currentPE < 8) {
     out.push(`The market only pays ${times(m.currentPE)} this year's expected earnings, very low compared to ~17–20 for a typical stock. That usually means investors doubt the earnings will last (competition, shrinking customers, debt). Assuming a higher exit P/E is a bet that those fears are wrong.`);
   }
@@ -923,7 +948,7 @@ export function judge(key, d) {
       const r = v.forwardPE / v.trailingPE;
       return { tone: r < 0.9 ? "good" : r <= 1.05 ? "ok" : "bad", value: `${times(v.forwardPE)} vs ${times(v.trailingPE)} trailing`, text: r < 0.9 ? "Lower than trailing: profits expected to grow" : r <= 1.05 ? "About the same as trailing" : "Higher than trailing: profits expected to shrink" };
     }
-    case "peg": return isNum(v.peg) && v.peg > 0 ? band(v.peg, 2, 1, (x) => num(x, 2), { good: "Under 1: cheap for its growth", ok: "1–2: fair", bad: "Over 2: paying up" }, false) : null;
+    case "peg": return isNum(v.peg) && v.peg > 0 && !(expectedGrowth(d) > WILD_GROWTH) ? band(v.peg, 2, 1, (x) => num(x, 2), { good: "Under 1: cheap for its growth", ok: "1–2: fair", bad: "Over 2: paying up" }, false) : null;
     case "revenueGrowth": return band(f.revenueGrowth, 0, 0.05, p1, { good: "Growing at a solid pace", ok: "Barely growing", bad: "Shrinking" });
     case "operatingMargin": return band(f.operatingMargin, 0.1, 0.2, p1, { good: "Over 20%: strong", ok: "10–20%: decent", bad: "Under 10%: thin" });
     case "freeCashflow": {
@@ -949,7 +974,7 @@ export function judge(key, d) {
     }
     case "shortInterest": return isNum(f.shortPercentOfFloat) ? band(f.shortPercentOfFloat, 0.15, 0.05, p1, { good: "Under 5%: normal", ok: "5–15%: elevated", bad: "Over 15%: many investors betting against it" }, false) : null;
     case "ma200": {
-      if (!isNum(q.price) || !isNum(q.ma200)) return null;
+      if (!isNum(q.price) || !isNum(q.ma200) || newListing(d)?.tradingDays < 200) return null;
       const x = q.price / q.ma200 - 1;
       return { tone: x >= 0 ? "good" : x > -0.1 ? "ok" : "bad", value: `${pct(x, { sign: true })} vs 200-day`, text: x >= 0 ? "Above: the trend is up" : x > -0.1 ? "Slightly below" : "Well below: downtrend" };
     }
@@ -965,7 +990,7 @@ export function judge(key, d) {
     }
     case "epsSurprise": {
       const h = (d.earnings?.history || []).filter((x) => isNum(x.surprise)).slice(-8);
-      if (!h.length) return null;
+      if (h.length < 4) return null;
       const b = h.filter((x) => x.surprise > 0).length, one = h.filter((x) => oneOffMiss(d, x)).length, r = (b + one) / h.length;
       return { tone: r >= 0.7 ? "good" : r >= 0.5 ? "ok" : "bad", value: `Beat ${b} of ${h.length}${one ? ` (+${one} one-off)` : ""}`, text: r >= 0.7 ? "Beats as often as healthy companies do" : r >= 0.5 ? "Misses more than most big companies" : "Misses often" };
     }
@@ -1520,13 +1545,13 @@ export function walkSteps(d, { signals = [], bench } = {}) {
     const i = Math.max(0, close.length - 1 - n), last = close.length - 1, mine = close[last] / close[i] - 1;
     const yrs = Math.round((Date.parse(dates[last]) - Date.parse(dates[i])) / 3.156e10);
     const b = spy ? benchMove(spy, dates[i], dates[last]) : null;
-    return `Over ${yrs <= 1 ? "the last year" : `the last ${yrs} years`} ${isFund ? "the fund" : "the stock"} ${Math.abs(mine) < 0.005 ? "**was about flat**" : `**${mine >= 0 ? "rose" : "fell"} ${pct(Math.abs(mine), { digits: 0 })}**`}` +
+    return `${n === Infinity && newListing(d) ? `Since it began trading on ${date(dates[0])},` : `Over ${yrs <= 1 ? "the last year" : `the last ${yrs} years`}`} ${isFund ? "the fund" : "the stock"} ${Math.abs(mine) < 0.005 ? "**was about flat**" : `**${mine >= 0 ? "rose" : "fell"} ${pct(Math.abs(mine), { digits: 0 })}**`}` +
       (isNum(b) ? `, vs ${b >= 0 ? "+" : "−"}${pct(Math.abs(b), { digits: 0 })} for the S&P 500, so it ${mine > b + 0.02 ? "beat" : mine < b - 0.02 ? "lagged" : "kept pace with"} the market.` : ".");
   };
   const dr = dropStory(d, spy);
   add({ id: "price", tab: "summary", area: "chart", title: `How has the ${isFund ? "fund" : "stock"} done?`, sigKey: "trend",
     what: "The price chart shows what owners actually got. Compare it with the S&P 500 using the “vs” picker. A falling price isn't bad on its own; it matters when the business is getting worse too, which the next slides check.",
-    says: [close.length > 260 ? move(252) : null, close.length > 1000 ? move(Infinity) : null, dr ? dr.lines[dr.lines.length - 1] : null,
+    says: [close.length > 260 ? move(252) : null, close.length > 1000 || newListing(d) ? move(Infinity) : null, dr ? dr.lines[dr.lines.length - 1] : null,
       isFund ? txt("returns") : null, txt("trend")] });
 
   if (isFund) {

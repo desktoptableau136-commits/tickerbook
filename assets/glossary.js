@@ -28,7 +28,7 @@ export const GLOSSARY = {
     short: "P/E adjusted for growth. Lower = more growth per dollar.",
     what: "P/E ÷ expected annual earnings growth (in %). A P/E of 30 with 30% growth gives a PEG of 1.0.",
     why: "A high P/E isn't bad if the company is growing fast. PEG puts valuation and growth on the same scale.",
-    rule: "Under 1 = cheap for its growth · 1–2 = fair · over 2 = you're paying up. Growth estimates can be wrong, so treat it as a rough guide.",
+    rule: "Under 1 = cheap for its growth · 1–2 = fair · over 2 = you're paying up. Growth estimates can be wrong, so treat it as a rough guide. With expected growth over 100% a year (usually growth from a tiny base) it's skipped, and the P/E is judged alone.",
   },
   eps: {
     term: "EPS (earnings per share)",
@@ -49,7 +49,7 @@ export const GLOSSARY = {
     short: "How far actual EPS landed above or below what analysts expected.",
     what: "(Actual EPS − Estimated EPS) ÷ Estimated EPS. +5% means the company earned 5% more than expected.",
     why: "Stocks move on surprises. A result that's already expected is 'priced in'; the surprise is the news.",
-    rule: "Big, healthy companies beat about 70–80% of the time because they guide conservatively, so a small beat is normal. A miss stands out more.",
+    rule: "Big, healthy companies beat about 70–80% of the time because they guide conservatively, so a small beat is normal. A miss stands out more. Fewer than 4 reports is too few to call a record.",
   },
   earningsReaction: {
     term: "Earnings reaction",
@@ -280,7 +280,7 @@ export const GLOSSARY = {
     short: "The average closing price over the last ~10 months.",
     what: "Smooths out day-to-day noise to show the longer-term trend.",
     why: "A common trend check: above it = uptrend, below = downtrend.",
-    rule: "Long-term investors use it as context, not a buy/sell trigger. Great companies often dip below it, which can be a buying chance if the business is fine.",
+    rule: "Long-term investors use it as context, not a buy/sell trigger. Great companies often dip below it, which can be a buying chance if the business is fine. A stock that's traded for under 200 days doesn't have one yet.",
   },
   range52: {
     term: "52-week range",
