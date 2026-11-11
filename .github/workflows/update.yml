@@ -12,9 +12,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "refresh, add, remove or tag"
+        description: "refresh, add, remove, tag or reorder"
         type: choice
-        options: [refresh, add, remove, tag]
+        options: [refresh, add, remove, tag, reorder]
         default: refresh
       ticker:
         description: "Ticker symbol (for add / remove / tag)"
@@ -25,6 +25,10 @@ on:
         type: choice
         options: [researching, watching, owned]
         default: researching
+      order:
+        description: "For reorder: comma-separated tickers, top first"
+        required: false
+        default: ""
       request_id:
         description: "Set by the dashboard so it can track progress"
         required: false
@@ -68,10 +72,11 @@ jobs:
           ACTION: ${{ inputs.action || 'refresh' }}
           TICKER: ${{ inputs.ticker }}
           TAG: ${{ inputs.tag || 'researching' }}
+          ORDER: ${{ inputs.order }}
           REQUEST_ID: ${{ inputs.request_id || github.run_id }}
           # optional: "Tickerbook you@example.com" (Settings > Variables). The SEC asks bots to identify themselves.
           SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
-        run: python scripts/fetch.py --action "$ACTION" --ticker "$TICKER" --tag "$TAG" --request-id "$REQUEST_ID"
+        run: python scripts/fetch.py --action "$ACTION" --ticker "$TICKER" --tag "$TAG" --order "$ORDER" --request-id "$REQUEST_ID"
 
       - name: Save changes
         run: |

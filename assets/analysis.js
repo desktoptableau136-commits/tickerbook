@@ -1135,7 +1135,26 @@ export function drawdowns(dates, close) {
   };
 }
 
-// The S&P 500's move between two dates.
+// ------------------------------------------------------------------ benchmarks
+// The price chart compares against funds (dividends folded in, like every ticker's prices),
+// not the indexes, which leave dividends out. Colors stay fixed per benchmark.
+export const BENCHES = [
+  { key: "SPY", name: "S&P 500", color: "var(--series-2)",
+    about: "500 of the largest US companies, weighted by size. The usual meaning of \"the market\"." },
+  { key: "QQQ", name: "Nasdaq 100", color: "var(--series-3)",
+    about: "The 100 largest non-financial companies on the Nasdaq exchange. Heavy in tech, so it shows whether a stock beat tech as a group." },
+];
+const NOT_PLAIN = /equal|growth|value|dividend|volatil|momentum|quality|leverag|2x|3x|inverse|short|bear|bull|ESG|buffer|option|covered/i;
+// True when the ticker is (or is a plain fund tracking) that benchmark's index, so comparing would be pointless.
+export function tracksBench(d, key) {
+  if (d.symbol === key) return true;
+  if (d.type !== "ETF") return false;
+  const name = `${d.name || ""} ${d.longName || ""}`;
+  const re = key === "SPY" ? /S&P\s*500/i : /Nasdaq[-\s]*100/i;
+  return re.test(name) && !NOT_PLAIN.test(name);
+}
+
+// A benchmark's move between two dates.
 export function benchMove(bench, from, to) {
   if (!bench?.dates?.length) return null;
   const at = (dt) => { const i = bench.dates.findIndex((x) => x >= dt); return i < 0 ? null : bench.close[i]; };
@@ -1152,7 +1171,7 @@ export function dropStory(d, bench) {
   const lines = [];
   lines.push(`**Worst drop in ${yrs} years: ${pct(w.depth, { digits: 0 })}**, from ${price(w.peakPrice)} (${when(w.peakDate)}) to ${price(w.troughPrice)} (${when(w.troughDate)}).` +
     (w.recoverDate ? ` It took **${mo(w.totalMonths)}** from that high to get back to it.` : " **It hasn't got back to that high yet.**"));
-  const bm = d.symbol !== "VOO" ? benchMove(bench, w.peakDate, w.troughDate) : null;
+  const bm = !tracksBench(d, "SPY") ? benchMove(bench, w.peakDate, w.troughDate) : null;
   if (isNum(bm)) lines.push(`The S&P 500 ${bm < -0.005 ? `fell ${pct(-bm, { digits: 0 })}` : bm > 0.005 ? `rose ${pct(bm, { digits: 0 })}` : "was flat"} over the same stretch, so ${bm > w.depth * 0.6 ? "most of the drop was this company's own, not the whole market's" : "much of it was the whole market falling"}.`);
   if (dd.big.length > 1) lines.push(`It fell 20% or more ${dd.big.length} separate times in ${yrs} years.`);
   const n = dd.now;

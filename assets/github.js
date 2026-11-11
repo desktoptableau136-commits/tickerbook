@@ -85,7 +85,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * onProgress({ stage, stageIndex, percent, elapsed, runUrl }) is called often.
  * Resolves with { ok, message, runUrl }.
  */
-export async function runUpdate({ action, ticker = "", tag = "researching" }, onProgress) {
+export async function runUpdate({ action, ticker = "", tag = "researching", order = "" }, onProgress) {
   const c = getConfig();
   const requestId = Math.random().toString(36).slice(2, 10);
   const t0 = Date.now();
@@ -106,7 +106,7 @@ export async function runUpdate({ action, ticker = "", tag = "researching" }, on
     tick();
     await gh(`/repos/${c.owner}/${c.repo}/actions/workflows/${WORKFLOW}/dispatches`, {
       method: "POST",
-      body: { ref: c.branch, inputs: { action, ticker, tag, request_id: requestId } },
+      body: { ref: c.branch, inputs: { action, ticker, tag, order, request_id: requestId } },
     });
     setStage(1);
 

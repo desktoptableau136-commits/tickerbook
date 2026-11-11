@@ -93,7 +93,8 @@ async function loadAll() {
   const syms = state.index.tickers.map((t) => t.symbol);
   const results = await Promise.allSettled(syms.map((s) => fetchJSON(`data/${s}.json`)));
   results.forEach((r, i) => { if (r.status === "fulfilled") state.data[syms[i]] = r.value; });
-  try { state.bench = await fetchJSON("data/_bench.json"); } catch { state.bench = null; }
+  // { SPY: {dates, close}, QQQ: … }; an older file (the ^GSPC index, no dividends) is ignored
+  try { state.bench = (await fetchJSON("data/_bench.json")).benches || null; } catch { state.bench = null; }
 }
 
 function tickers() {
@@ -176,8 +177,10 @@ function renderHome() {
 
   const grid = h("div", { class: "grid", style: "margin-top:12px" }, shown.map(({ d, tag }) => tickerCard(d, tag)));
   if (!shown.length) grid.append(h("div", { class: "empty card" }, "Nothing here yet."));
+  const reorderBtn = GH.connected() && all.length > 1
+    ? h("button", { class: "btn sm", type: "button", on: { click: () => { view.replaceChildren(); renderReorder(route); window.scrollTo(0, 0); } } }, "Reorder") : null;
 
-  view.append(hero, chips, grid);
+  view.append(hero, h("div", { class: "home-bar" }, chips, reorderBtn), grid);
 
   if (!GH.connected()) {
     view.append(h("div", { class: "card connect-hint", style: "margin-top:16px" },
@@ -225,6 +228,62 @@ function renderHome() {
   view.append(lower);
 
   view.append(h("p", { class: "disclaimer" }, "For learning and research only. Not financial advice. Data from Yahoo Finance, may be delayed or incomplete."));
+}
+
+// Reorder mode: ↑/↓ buttons everywhere, plus drag-and-drop with a mouse. Saving runs the
+// "reorder" workflow, so watchlist.json (and every device) gets the new order.
+function renderReorder(done) {
+  const all = tickers(), orig = all.map((t) => t.symbol), info = Object.fromEntries(all.map((t) => [t.symbol, t]));
+  let order = [...orig], dragEl = null;
+  const list = h("ol", { class: "reorder-list" });
+  const save = h("button", { class: "btn primary", type: "button", on: { click: () => {
+    if (state.task?.running) return openTaskSheet();
+    // show the new order right away; loadAll() after the run reads it back from the repo
+    const pos = new Map(order.map((s, i) => [s, i]));
+    state.index.tickers.sort((a, b) => (pos.get(a.symbol) ?? 1e9) - (pos.get(b.symbol) ?? 1e9));
+    done();
+    startTask({ action: "reorder", order: order.join(","), title: "Saving your order" });
+  } } }, "Save order");
+  const move = (i, step) => {
+    const j = i + step;
+    if (j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    draw(order[j], step < 0 ? "up" : "down");
+  };
+  const draw = (focusSym, dir) => {
+    save.disabled = order.join() === orig.join();
+    list.replaceChildren(...order.map((sym, i) => {
+      const { d, tag } = info[sym];
+      return h("li", { class: "reorder-row", "data-sym": sym, ...(canHover.matches ? { draggable: "true" } : {}), on: {
+        dragstart: (e) => { dragEl = e.currentTarget; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", sym); dragEl.classList.add("dragging"); },
+        dragover: (e) => {
+          if (!dragEl) return;
+          e.preventDefault();
+          const li = e.currentTarget;
+          if (li === dragEl) return;
+          const r = li.getBoundingClientRect();
+          list.insertBefore(dragEl, e.clientY > r.top + r.height / 2 ? li.nextSibling : li);
+        },
+        drop: (e) => e.preventDefault(),
+        dragend: () => { dragEl = null; order = [...list.children].map((x) => x.dataset.sym); draw(); },
+      } },
+        h("span", { class: "grip", "aria-hidden": "true" }, "⠿"),
+        h("span", { class: "reorder-num tnum", "aria-hidden": "true" }, String(i + 1)),
+        h("div", { class: "grow" }, h("b", {}, sym), h("span", { class: `tag mini ${tag}` }, tag), h("div", { class: "muted small reorder-name" }, d.name || "")),
+        h("button", { class: "move-btn", type: "button", "data-dir": "up", "aria-label": `Move ${sym} up`, disabled: i === 0, on: { click: () => move(i, -1) } }, "↑"),
+        h("button", { class: "move-btn", type: "button", "data-dir": "down", "aria-label": `Move ${sym} down`, disabled: i === order.length - 1, on: { click: () => move(i, 1) } }, "↓"));
+    }));
+    if (focusSym) {
+      const row = list.querySelector(`[data-sym="${focusSym}"]`);
+      (row?.querySelector(`[data-dir="${dir}"]:not(:disabled)`) || row?.querySelector(".move-btn:not(:disabled)"))?.focus();
+    }
+  };
+  draw();
+  view.append(
+    h("div", { class: "home-hero" }, h("div", {}, h("h1", {}, "Reorder your watchlist"),
+      h("div", { class: "muted small" }, "Use the arrows", h("span", { class: "only-hover" }, ", or drag a row"), ". Saving takes about a minute and updates every device."))),
+    card(null, {}, list),
+    h("div", { class: "reorder-actions" }, h("button", { class: "btn", type: "button", on: { click: () => done() } }, "Cancel"), save));
 }
 
 function tickerCard(d, tag) {
@@ -297,18 +356,22 @@ function renderTicker(sym, tab) {
 const grid = (name, flow = false) => h("div", { class: `cols dash dash-${name}${flow ? " dash-flow" : ""}` });
 
 // ---------------------------------------------------------------- price chart
-// hover values for the price chart's % views: "−12.3%", "$182.40", and the S&P 500 in index points
+// hover values for the price chart's % views: "−12.3%" and "$182.40"
 const pctTip = (v) => (Math.abs(v) < 0.0005 ? "at its high" : `${v < 0 ? "−" : "+"}${Math.abs(v * 100).toFixed(1)}%`);
 const usd = (v) => `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const idxPts = (v) => `${Math.round(v).toLocaleString("en-US")} pts`;
 const RANGES = [["1M", 21], ["6M", 126], ["YTD", "ytd"], ["1Y", 252], ["5Y", Infinity]];
 
 function priceCard(d) {
   const box = h("div", { class: "flexcol" });
   let range = pref("range") || "1Y";
-  let vsMarket = pref("vsMarket") === "1";
   let drops = pref("drops") === "1";
   const perf = h("div", { class: "perf" });
+  // "vs" picker: off, one benchmark, or both. A fund tracking a benchmark's own index doesn't get that one.
+  const avail = A.BENCHES.filter((b) => state.bench?.[b.key]?.dates?.length && !A.tracksBench(d, b.key));
+  const choices = [["off", "No comparison"], ...avail.map((b) => [b.key, `vs ${b.name}`]), ...(avail.length > 1 ? [["both", "vs both"]] : [])];
+  const saved = pref("vs") ?? (pref("vsMarket") === "1" ? "SPY" : "off");
+  let vs = choices.some(([k]) => k === saved) ? saved : saved === "both" && avail.length ? avail[0].key : "off";
+  const picked = () => (vs === "both" ? avail : avail.filter((b) => b.key === vs));
 
   const draw = () => {
     const { dates, close } = d.prices;
@@ -327,36 +390,42 @@ function priceCard(d) {
     if (drops) {
       // how far below its running high (over all the history we have) it was each day
       const dd = A.drawdowns(dates, close), us = dd.under.slice(start);
-      const withB = vsMarket && state.bench && d.symbol !== "VOO";
       const series = [{ name: d.symbol, values: us, color: "var(--series-1)", tip: (i, v) => `${pctTip(v)} · ${usd(cs[i])}` }];
-      if (withB) {
-        const bu = A.drawdowns(state.bench.dates, state.bench.close).under, bmap = new Map(state.bench.dates.map((x, i) => [x, i]));
+      for (const b of picked()) {
+        const B = state.bench[b.key];
+        const bu = A.drawdowns(B.dates, B.close).under, bmap = new Map(B.dates.map((x, i) => [x, i]));
         const bi = ds.map((x) => bmap.get(x));
-        series.push({ name: "S&P 500", values: bi.map((j) => (j == null ? null : bu[j])), color: "var(--series-2)", tip: (i, v) => `${pctTip(v)} · ${idxPts(state.bench.close[bi[i]])}` });
-        box.append(legend(series.map((s) => ({ name: s.name, color: s.color, kind: "line" }))));
+        series.push({ name: b.name, legend: `${b.name} (${b.key})`, values: bi.map((j) => (j == null ? null : bu[j])), color: b.color, tip: (i, v) => `${pctTip(v)} · ${usd(B.close[bi[i]])}` });
       }
+      if (series.length > 1) box.append(legend(series.map((s) => ({ name: s.legend || s.name, color: s.color, kind: "line" }))));
       box.append(c);
       lineChart(c, { dates: ds, series, area: false, refLine: 0, yMax: 0, yFormat: (v, axis) => (axis ? (Math.abs(v) < 0.0005 ? "0%" : `−${Math.abs(v * 100).toFixed(0)}%`) : pctTip(v)), xFormat: fmtX, tipTitle, height: 230, fill: true,
         ariaLabel: `${d.symbol} percent below its previous high, ${range}` });
       const worst = Math.min(...us);
       perf.replaceChildren(h("span", { class: "down" }, `Worst ${A.pct(worst, { digits: 0 })}`), ` in ${span} · now `, h("b", {}, us[us.length - 1] > -0.005 ? "at its high" : `${A.pct(-us[us.length - 1], { digits: 0 })} below its high`));
-      const st = A.dropStory(d, state.bench);
+      const st = A.dropStory(d, state.bench?.SPY);
       if (st) box.append(h("p", { class: "small ink2 drop-note" }, rich(st.lines[0]), " ", rich(st.lines[1] || ""), " ", termBtn("drawdown", "About drops")));
       return;
     }
-    if (vsMarket && state.bench && d.symbol !== "VOO") {
-      const bmap = new Map(state.bench.dates.map((x, i) => [x, state.bench.close[i]]));
-      const b0 = bmap.get(ds[0]) ?? state.bench.close[state.bench.dates.findIndex((x) => x >= ds[0])];
-      const bs = ds.map((x) => (bmap.has(x) ? (bmap.get(x) / b0) * 100 : null));
-      const ss = cs.map((v) => (v / cs[0]) * 100);
-      const lastB = [...bs].reverse().find((v) => v != null);
-      box.append(legend([{ name: d.symbol, color: "var(--series-1)", kind: "line" }, { name: "S&P 500", color: "var(--series-2)", kind: "line" }]), c);
+    if (picked().length) {
+      // every line starts at 100 on the first day, so the chart compares % change, not price
       const idxTip = (v) => (v - 100 >= 0 ? "+" : "−") + Math.abs(v - 100).toFixed(1) + "%";
-      lineChart(c, { dates: ds, series: [{ name: d.symbol, values: ss, color: "var(--series-1)", tip: (i, v) => `${idxTip(v)} · ${usd(cs[i])}` },
-        { name: "S&P 500", values: bs, color: "var(--series-2)", tip: (i, v) => `${idxTip(v)} · ${idxPts(bmap.get(ds[i]))}` }],
-        yFormat: (v) => (v - 100 >= 0 ? "+" : "−") + Math.abs(v - 100).toFixed(0) + "%", xFormat: fmtX, tipTitle, height: 230, fill: true, refLine: 100, ariaLabel: `${d.symbol} vs S&P 500, indexed` });
-      const bchg = lastB / 100 - 1;
-      perf.append(` · S&P 500 ${A.pct(bchg, { sign: true })}. `, h("b", {}, chg >= bchg ? `Beat the market by ${A.pct(chg - bchg)}` : `Trailed the market by ${A.pct(bchg - chg)}`));
+      const series = [{ name: d.symbol, values: cs.map((v) => (v / cs[0]) * 100), color: "var(--series-1)", tip: (i, v) => `${idxTip(v)} · ${usd(cs[i])}` }];
+      const results = [];
+      for (const b of picked()) {
+        const B = state.bench[b.key], bmap = new Map(B.dates.map((x, i) => [x, B.close[i]]));
+        const b0 = bmap.get(ds[0]) ?? B.close[B.dates.findIndex((x) => x >= ds[0])];
+        if (!isNum(b0)) continue;
+        const vals = ds.map((x) => (bmap.has(x) ? (bmap.get(x) / b0) * 100 : null));
+        const last = [...vals].reverse().find((v) => v != null);
+        series.push({ name: b.name, legend: `${b.name} (${b.key})`, values: vals, color: b.color, tip: (i, v) => `${idxTip(v)} · ${usd(bmap.get(ds[i]))}` });
+        if (isNum(last)) results.push({ name: b.name, chg: last / 100 - 1 });
+      }
+      box.append(legend(series.map((s) => ({ name: s.legend || s.name, color: s.color, kind: "line" }))), c);
+      lineChart(c, { dates: ds, series, yFormat: (v) => (v - 100 >= 0 ? "+" : "−") + Math.abs(v - 100).toFixed(0) + "%", xFormat: fmtX, tipTitle, height: 230, fill: true, refLine: 100,
+        ariaLabel: `${d.symbol} vs ${results.map((r) => r.name).join(" and ")}, indexed` });
+      const verdict = results.map((r, i) => `${chg >= r.chg ? (i ? "beat" : "Beat") : (i ? "trailed" : "Trailed")} the ${r.name} by ${A.pct(Math.abs(chg - r.chg))}`).join(", ");
+      perf.append(...results.map((r) => ` · ${r.name} ${A.pct(r.chg, { sign: true })}`), ". ", h("b", {}, verdict));
     } else {
       box.append(c);
       lineChart(c, { dates: ds, series: [{ name: d.symbol, values: cs, color: "var(--series-1)" }],
@@ -367,8 +436,10 @@ function priceCard(d) {
   const chips = h("div", { class: "chips", role: "group", "aria-label": "Time range" },
     RANGES.map(([k]) => h("button", { class: "chip", type: "button", "aria-pressed": String(k === range),
       on: { click: (e) => { range = k; pref("range", k); chips.querySelectorAll(".chip").forEach((x) => x.setAttribute("aria-pressed", String(x === e.currentTarget))); draw(); } } }, k)));
-  const tog = d.symbol !== "VOO" && state.bench ? h("label", { class: "toggle" },
-    h("input", { type: "checkbox", ...(vsMarket ? { checked: true } : {}), on: { change: (e) => { vsMarket = e.target.checked; pref("vsMarket", vsMarket ? "1" : "0"); draw(); } } }), "vs S&P 500") : null;
+  const vsTip = `Compares the % change, with dividends counted for the stock and the market alike. ${avail.map((b) => `${b.name} (tracked by the ${b.key} fund): ${b.about}`).join(" ")}`;
+  const tog = avail.length ? h("label", { class: "toggle vs-pick", "data-tip": vsTip, "data-tip-title": "Compare with the market" },
+    h("select", { "aria-label": "Compare with the market", on: { change: (e) => { vs = e.target.value; pref("vs", vs); draw(); } } },
+      choices.map(([k, label]) => h("option", { value: k, ...(k === vs ? { selected: true } : {}) }, label)))) : null;
   const dropTog = h("label", { class: "toggle", "data-tip": "Shows how far the price was below its previous high on each day, and how long it took to recover.", "data-tip-title": "Drops from a peak" },
     h("input", { type: "checkbox", ...(drops ? { checked: true } : {}), on: { change: (e) => { drops = e.target.checked; pref("drops", drops ? "1" : "0"); draw(); } } }), "Drops");
   requestAnimationFrame(draw);
@@ -1418,18 +1489,22 @@ function openTickerMenu(d) {
     } } }, "Remove from watchlist")));
 }
 
-function startTask({ action, ticker = "", tag = "researching", title }) {
-  const task = state.task = { action, ticker, tag, title, running: true, progress: null, result: null, error: null, listeners: new Set() };
+function startTask({ action, ticker = "", tag = "researching", order = "", title }) {
+  const task = state.task = { action, ticker, tag, order, title, running: true, progress: null, result: null, error: null, listeners: new Set() };
   const notify = () => task.listeners.forEach((fn) => fn());
   openTaskSheet();
-  GH.runUpdate({ action, ticker, tag }, (p) => { task.progress = p; notify(); })
+  GH.runUpdate({ action, ticker, tag, order }, (p) => { task.progress = p; notify(); })
     .then(async (res) => {
       task.result = res;
-      if (res.ok) {
+      // a reorder already shows its new order; reload either way so a failed one snaps back
+      if (res.ok || action === "reorder") {
         try { await loadAll(); } catch (e) { console.warn(e); }
       }
     })
-    .catch((e) => { task.error = e.message; })
+    .catch(async (e) => {
+      task.error = e.message;
+      if (action === "reorder") { try { await loadAll(); } catch {} }
+    })
     .finally(() => {
       task.running = false; notify(); updatePill();
       if (!sheetEl && task.result?.ok) { route(); }

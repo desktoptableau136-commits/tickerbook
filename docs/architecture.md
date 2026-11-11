@@ -10,7 +10,7 @@ Detailed reference, split out of `CLAUDE.md` to keep that file lean. Read the se
 
 ## Data pipeline (`fetch.py`)
 
-**Files written:** `data/<SYM>.json` (everything every tab needs), `data/_bench.json` (S&P 500 prices), `data/index.json` (tickers, tags, names), `data/last_request.json` (outcome of the last add/remove/tag).
+**Files written:** `data/<SYM>.json` (everything every tab needs), `data/_bench.json` (`benches.SPY` / `benches.QQQ`: S&P 500 and Nasdaq 100 fund prices), `data/index.json` (tickers, tags, names), `data/last_request.json` (outcome of the last add/remove/tag).
 
 **Units.** Some Yahoo `info` fields are percents (`dividendYield` 0.72 = 0.72%, `netExpenseRatio`, `ytdReturn`, `debtToEquity`) and go through `pct()`. Everything in the JSON is a decimal. `type: "EQUITY"` has `valuation/fundamentals/analysts/earnings/financials`; `type: "ETF"` has `fund`.
 
@@ -19,6 +19,8 @@ Detailed reference, split out of `CLAUDE.md` to keep that file lean. Read the se
 **History snapshots.** Yahoo has no historical P/E or estimates, so each run reads the previous `data/<SYM>.json` and appends today's `snapshot()`. Deleting or regenerating a data file loses that history.
 
 **Peers.** `build_peers()` stores up to 8 of the largest companies in the same Yahoo industry (`yf.Industry(key).top_companies`, skipping other share classes) as `d.peers.list`. `peer_info()` (cached per run) keeps the same `info` fields for each peer as the ticker's own data, so the Peers tab compares like with like.
+
+**Benchmarks.** `BENCHES` (SPY, QQQ) are fetched with `price_history()` like any ticker, so dividends are folded in on both sides. Don't switch to `^GSPC`/`^NDX`: the indexes leave dividends out, which flattered every stock by ~1.3%/yr. A failed fetch keeps the previous copy.
 
 **Fund holdings.** Yahoo returns only a fund's top 10. Plain S&P 500 funds (name matches "S&P 500", none of growth/equal/leveraged…) take their top 15 from SPY's daily holdings xlsx (needs `openpyxl`) and record `fund.holdingsSource`. Falls back quietly to Yahoo.
 
@@ -68,7 +70,7 @@ Hash router: `#/`, `#/t/SYM/<tab>`, `#/learn`, `#/settings`. Equity tabs: Summar
 
 **Peers tab.** `PEER_GROUPS` rows have `self(d)` / `peer(p)` getters reading the same field, an `ok` filter for meaningless values, and `better` (`null` = not ranked, e.g. beta). "Beats/lags most peers" = better/worse than ≥ 2/3 of peers with a usable value. Labels use `termPlain()` (no thumb, since this tab ranks against peers). This replaced a watchlist-wide compare page at the user's request.
 
-**Drops toggle.** On the price chart, plots `drawdowns().under` (with the S&P 500 when "vs S&P 500" is on; `yMax: 0` caps the axis). The range chips and both toggles share a fixed row and the summary text sits below, so the checkboxes never move (the user asked for this). In the % views (Drops, vs S&P 500), each series' `tip(i, v)` adds the $ price, or S&P 500 index points, to the hover.
+**Price chart "vs" picker and Drops.** One `<select>`: No comparison / vs S&P 500 / vs Nasdaq 100 / vs both (pref `vs`). `A.BENCHES` in `analysis.js` holds names, fixed colors (SPY `--series-2`, QQQ `--series-3`) and the hover text. `A.tracksBench()` hides a benchmark on a fund that tracks the same index (VOO gets only Nasdaq 100). Drops plots `drawdowns().under` for the stock and each picked benchmark (`yMax: 0` caps the axis); `dropStory()` always uses SPY. The range chips, picker and Drops checkbox share a fixed row and the summary text sits below, so the controls never move (the user asked for this). In the % views each series' `tip(i, v)` adds the $ price to the hover.
 
 **Analyst rating changes.** First 15 shown in 3 columns, then "Show all". The left edge is colored by the firm's current Buy/Hold/Sell. Firm words (Overweight, Sector Perform…) map via `RATING_GROUP`, with hover meanings in `RATING_WORDS`.
 
@@ -83,6 +85,8 @@ Card content sits in `.card-body`, so sticky table headers stay flush. Earnings 
 ## Research flow and workflow
 
 **Research.** With a fine-grained token in localStorage, `github.js` POSTs a `workflow_dispatch` to `update.yml` with a random `request_id`. It finds the run by `[request_id]` in `run-name`, polls the `fetch` job's steps, and maps step names to progress stages (`STAGES[].match`). Then it reads `data/last_request.json` and the new data via the Contents API, skipping the Pages delay. With a token, `fetchJSON` reads all data via the Contents API.
+
+**Reorder.** Home's "Reorder" button (shown with a token) swaps the view for `renderReorder()`: ↑/↓ buttons, plus HTML5 drag on mouse devices. Save reorders `state.index` at once and runs action `reorder` with input `order` ("A,B,C"). `fetch.py` sorts `watchlist.json` by it (tickers not listed keep their place at the end), rewrites `index.json` without touching `updated`, and fetches no market data. A failed run reloads, so the order snaps back.
 
 **Workflow.** One workflow handles schedule (weekdays 21:30 UTC), `workflow_dispatch` and push.
 - **Push:** only deploys. The `fetch` job is skipped, so new data fields appear only after the next refresh. Trigger one with `gh workflow run update.yml -f action=refresh`.

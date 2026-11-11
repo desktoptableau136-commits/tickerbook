@@ -5,10 +5,12 @@ Usage:
   python scripts/fetch.py --action add --ticker NVDA --tag researching
   python scripts/fetch.py --action remove --ticker NVDA
   python scripts/fetch.py --action tag --ticker NVDA --tag owned
+  python scripts/fetch.py --action reorder --order GOOG,NVDA,MSFT   # no market data fetched
 
 Writes:
   data/<SYMBOL>.json   one file per ticker (all tabs read from this)
-  data/_bench.json     S&P 500 price history, for "vs the market" comparisons
+  data/_bench.json     SPY (S&P 500) and QQQ (Nasdaq 100) prices with dividends folded in,
+                       for the price chart's "vs" comparisons
   data/index.json      list of tickers + tags + last update time
   data/last_request.json  outcome of the most recent add/remove/tag request
 """
@@ -44,6 +46,9 @@ HOLDINGS_MAX = 15
 SPY_HOLDINGS = "https://www.ssga.com/us/en/intermediary/library-content/products/fund-data/etfs/us/holdings-daily-us-en-spy.xlsx"
 SP500_RE = re.compile(r"S&P\s*500", re.I)
 NOT_PLAIN_SP500 = re.compile(r"equal|growth|value|dividend|volatil|momentum|quality|leverag|2x|3x|inverse|short|bear|bull|ESG|buffer|option|covered", re.I)
+# Benchmarks for the price chart. Funds, not the ^GSPC/^NDX indexes: price_history() folds
+# dividends back into every ticker's prices, and the indexes leave them out.
+BENCHES = {"SPY": "S&P 500", "QQQ": "Nasdaq 100"}
 
 
 # ---------------------------------------------------------------- helpers
@@ -769,7 +774,14 @@ def save_watchlist(wl):
     WATCHLIST.write_text(json.dumps(wl, indent=2) + "\n", encoding="utf-8")
 
 
-def write_index(wl):
+def write_index(wl, touch=True):
+    """touch=False keeps the old "updated" time (reordering doesn't refresh any prices)."""
+    updated = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if not touch:
+        try:
+            updated = json.loads((DATA / "index.json").read_text(encoding="utf-8")).get("updated") or updated
+        except Exception:
+            pass
     names = {}
     for t in wl["tickers"]:
         p = DATA / f"{t['symbol']}.json"
@@ -777,16 +789,17 @@ def write_index(wl):
             j = json.loads(p.read_text(encoding="utf-8"))
             names[t["symbol"]] = {"name": j.get("name"), "type": j.get("type")}
     write_json(DATA / "index.json", {
-        "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "updated": updated,
         "tickers": [{"symbol": t["symbol"], "tag": t["tag"], **names.get(t["symbol"], {})} for t in wl["tickers"]],
     })
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--action", default="refresh", choices=["refresh", "add", "remove", "tag"])
+    ap.add_argument("--action", default="refresh", choices=["refresh", "add", "remove", "tag", "reorder"])
     ap.add_argument("--ticker", default="")
     ap.add_argument("--tag", default="researching")
+    ap.add_argument("--order", default="", help="reorder: comma-separated symbols, first = top")
     ap.add_argument("--request-id", default="")
     args = ap.parse_args()
 
@@ -802,6 +815,19 @@ def main():
             "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         })
         print(("OK: " if ok else "PROBLEM: ") + message)
+
+    if args.action == "reorder":
+        want = [s.strip().upper() for s in args.order.split(",") if s.strip()]
+        if not want or not all(TICKER_RE.match(s) for s in want):
+            report(False, "That order didn't look like a list of ticker symbols.")
+            return
+        pos = {s: i for i, s in enumerate(want)}
+        # anything not in the request (say, added meanwhile) keeps its relative place at the end
+        wl["tickers"].sort(key=lambda t: pos.get(t["symbol"], len(want)))
+        save_watchlist(wl)
+        write_index(wl, touch=False)
+        report(True, "Saved your watchlist order.")
+        return
 
     if args.action != "refresh":
         if not TICKER_RE.match(symbol):
@@ -854,11 +880,24 @@ def main():
             print(f"   FAILED: {e}")
             failures.append(s)
 
-    print("-> S&P 500 benchmark")
+    print("-> benchmarks")
     try:
-        write_json(DATA / "_bench.json", {"symbol": "^GSPC", "name": "S&P 500", **price_history(yf.Ticker("^GSPC"))})
-    except Exception as e:
-        print(f"   FAILED: {e}")
+        prev = json.loads((DATA / "_bench.json").read_text(encoding="utf-8")).get("benches", {})
+    except Exception:
+        prev = {}
+    benches = {}
+    for sym, name in BENCHES.items():
+        try:
+            ph = price_history(yf.Ticker(sym))
+            if not ph["close"]:
+                raise LookupError("no prices")
+            benches[sym] = {"symbol": sym, "name": name, **ph}
+        except Exception as e:
+            print(f"   {sym} FAILED: {e}")
+            if sym in prev:
+                benches[sym] = prev[sym]  # keep the last good copy
+    if benches:
+        write_json(DATA / "_bench.json", {"benches": benches})
 
     write_index(wl)
 
