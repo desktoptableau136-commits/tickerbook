@@ -988,3 +988,27 @@ a.tag.plain { color: var(--accent); text-decoration: none; }
 html.dash-on .dash-peers { grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr); grid-template-areas: "sum list" "all all"; align-content: start; }
 html.dash-on .dash-peers .psum { grid-template-columns: 1fr; }
 html.dash-on .dash-peers .prow { padding: 5px 0; } html.dash-on .dash-peers .pgroup h3 { margin-top: 10px; }
+
+/* dividends tab */
+.pay-list .list-row.extra { display: none; }
+.pay-list.all .list-row.extra { display: flex; }
+.pay-list .list-row { gap: 12px; align-items: baseline; }
+.pay-amt { font-weight: 600; min-width: 52px; text-align: right; }
+.div-story p { margin: 10px 0 0; }
+.div-story p:first-child { margin-top: 14px; }
+@media (min-width: 960px) { .signals.one { display: block; } }
+html.dash-on .dash-dividends {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 0.85fr);
+  grid-template-rows: auto auto; align-content: start;
+  grid-template-areas: "brief safety ret" "years yield pays";
+}
+html.dash-on .dash-divfund {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 0.85fr);
+  grid-template-rows: auto auto; align-content: start;
+  grid-template-areas: "brief ret pays" "years yield pays";
+}
+html.dash-on .dash-divnone { grid-template-columns: minmax(0, 760px); grid-template-areas: "none"; }
+html.dash-on .dash-dividends .tiles, html.dash-on .dash-divfund .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* why our net debt / EBITDA differs from the company's */
+.lev-notes { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.lev-notes p { margin: 6px 0 0; }

@@ -156,15 +156,16 @@ export function equitySignals(d) {
   if (isNum(nd) && isNum(f.ebitda) && f.ebitda > 0) {
     const lev = nd / f.ebitda;
     const st = lev < 1.5 ? "good" : lev < 3.5 ? "ok" : "bad";
+    const ln = leverageNotes(d), plainLn = ln ? ` ${ln.lines.join(" ").replace(/\*\*/g, "")}` : "";
     out.push(sig("health", "Debt load", st, { good: "Strong", ok: "Manageable", bad: "Heavy debt" }[st],
-      lev < 0 ? "Net cash" : `${times(lev)} net debt/EBITDA`,
+      lev < 0 ? "Net cash" : `${times(lev)} net debt/EBITDA${ln?.company ? ` · company: ${num(ln.company.ratio, 1)}×` : ""}`,
       lev < 0
         ? `Has more cash (${money(f.cash)}) than debt (${money(f.debt)}). A very safe balance sheet that gives flexibility in downturns.`
         : `Owes ${money(nd)} more than it holds in cash: about ${num(lev, 1)} years of EBITDA. ${{
             good: "Comfortable. Debt isn't a meaningful risk here.",
             ok: "Manageable, but worth watching if business slows.",
             bad: "High. Interest costs eat into profit, and there's little room for error if rates stay high or business weakens.",
-          }[st]}`, "netDebtToEbitda"));
+          }[st]}${plainLn}`, "netDebtToEbitda"));
   }
 
   // 5. Earnings track record
@@ -422,6 +423,27 @@ export function leverage(d) {
   return isNum(nd) && isNum(f.ebitda) && f.ebitda > 0 ? { netDebt: nd, ratio: nd / f.ebitda } : null;
 }
 
+// Why our net debt / EBITDA can differ from the company's: a recent jump in debt (usually an
+// acquisition) that the trailing-12-month EBITDA hasn't caught up with, and the figure the
+// company itself reported in its earnings release. Shown wherever the ratio appears.
+export function leverageNotes(d) {
+  const lev = leverage(d);
+  if (!lev || lev.ratio < 0) return null;
+  const q = d.fundamentals?.debtByQuarter || [];
+  let jump = null;
+  for (let i = q.length - 1; i >= Math.max(1, q.length - 3); i--) {
+    const a = q[i - 1].debt, b = q[i].debt;
+    if (isNum(a) && isNum(b) && a > 0 && b / a - 1 >= 0.1) { jump = { from: a, to: b, pct: b / a - 1, period: q[i].period, months: 3 * (q.length - i) }; break; }
+  }
+  const L = d.filing?.leverage;
+  const company = L && isNum(L.ratio) ? { ...L, filed: d.filing.filed } : null;
+  const name = shortName(d), lines = [];
+  if (jump) lines.push(`Debt jumped **${pct(jump.pct, { digits: 0 })}** (${money(jump.from)} → ${money(jump.to)}) in the quarter ending ${date(jump.period)}, usually because of an acquisition. Today's debt counts all of it, but the last 12 months of EBITDA include **at most ${jump.months} months** of whatever was bought, so this ratio reads high until a full year has passed.`);
+  if (company) lines.push(`${name}'s own figure in its ${date(company.filed)} earnings release: **${num(company.ratio, 1)}×**${company.proForma ? ", on a pro forma basis (as if any deal had been owned for the full 12 months)" : ""}${company.adjusted ? ", using its Adjusted EBITDA" : ""}. Companies usually add back items like stock-based pay and count debt at the amount owed, which tends to give a lower number than ours (${num(lev.ratio, 1)}×, from Yahoo's totals).`);
+  if (!lines.length) return null;
+  return { lev, jump, company, lines, short: company ? `company reports ${num(company.ratio, 1)}×` : "reads high after a recent debt jump" };
+}
+
 // Plain-English warnings shown next to the fair-value result.
 export function modelWarnings(d, m, fv) {
   const out = [];
@@ -429,7 +451,8 @@ export function modelWarnings(d, m, fv) {
   if (lev && lev.ratio > 3.5) {
     out.push(`Heavy debt: ${shortName(d)} owes ${money(lev.netDebt)} more than it holds in cash` +
       (isNum(mcap) && lev.netDebt > mcap ? `, more than ${Math.floor(lev.netDebt / mcap)}× the value of all its shares (${money(mcap)})` : "") +
-      `. With that much debt, a small drop in the business can wipe out a big chunk of profit for shareholders. This model doesn't capture that risk, and it's a big reason the market pays such a low P/E.`);
+      `. With that much debt, a small drop in the business can wipe out a big chunk of profit for shareholders. This model doesn't capture that risk, and it's a big reason the market pays such a low P/E.` +
+      (leverageNotes(d) ? ` (Net debt is ${num(lev.ratio, 1)}× EBITDA by our count; ${leverageNotes(d).short}. See Financials → Balance sheet.)` : ""));
   }
   if (isNum(m.currentPE) && m.currentPE < 8) {
     out.push(`The market only pays ${times(m.currentPE)} this year's expected earnings, very low compared to ~17–20 for a typical stock. That usually means investors doubt the earnings will last (competition, shrinking customers, debt). Assuming a higher exit P/E is a bet that those fears are wrong.`);
@@ -905,13 +928,19 @@ export function judge(key, d) {
     case "debtToEquity": return isNum(f.debtToEquity) ? band(f.debtToEquity, 2, 0.5, (x) => num(x, 2), { good: "Under 0.5: conservative", ok: "Moderate", bad: "Over 2: heavy" }, false) : null;
     case "netDebtToEbitda": {
       const l = leverage(d);
-      return l ? { tone: l.ratio < 1.5 ? "good" : l.ratio < 3.5 ? "ok" : "bad", value: l.ratio < 0 ? "Net cash" : times(l.ratio), text: l.ratio < 0 ? "More cash than debt" : l.ratio < 1.5 ? "Under 1.5×: comfortable" : l.ratio < 3.5 ? "1.5–3.5×: manageable" : "Over 3.5×: high" } : null;
+      const ln = leverageNotes(d);
+      return l ? { tone: l.ratio < 1.5 ? "good" : l.ratio < 3.5 ? "ok" : "bad", value: l.ratio < 0 ? "Net cash" : times(l.ratio), text: (l.ratio < 0 ? "More cash than debt" : l.ratio < 1.5 ? "Under 1.5×: comfortable" : l.ratio < 3.5 ? "1.5–3.5×: manageable" : "Over 3.5×: high") + (ln ? ` (${ln.short})` : "") } : null;
     }
     case "currentRatio": return isNum(f.currentRatio) ? { tone: f.currentRatio >= 1 ? "good" : "ok", value: num(f.currentRatio, 2), text: f.currentRatio >= 1 ? "Over 1: comfortable" : "Under 1: worth noting" } : null;
     case "roe": return band(f.roe, 0, 0.15, p1, { good: "Over 15%: good", ok: "Positive but under 15%", bad: "Negative" });
     case "evToEbitda": return isNum(v.evToEbitda) && v.evToEbitda > 0 ? band(v.evToEbitda, 20, 8, times, { good: "Under 8×: cheap", ok: "8–20×: typical", bad: "Over 20×: expensive" }, false) : null;
     case "dividendYield": return isNum(v.dividendYield) && v.dividendYield > 0 ? { tone: v.dividendYield > 0.06 || v.dividendYield < 0.01 ? "ok" : "good", value: pct(v.dividendYield, { digits: 2 }), text: v.dividendYield > 0.06 ? "Over 6%: check it's sustainable" : v.dividendYield < 0.01 ? "Under 1%: small; most of your return comes from the price" : "1–6%: a normal, healthy yield" } : null;
     case "payoutRatio": return isNum(v.payoutRatio) && v.payoutRatio > 0 ? band(v.payoutRatio, 1, 0.6, (x) => pct(x, { digits: 0 }), { good: "Under 60%: comfortable", ok: "60–100%: stretched", bad: "Over 100%: paying more than it earns" }, false) : null;
+    case "cashPayout": case "dividendGrowth": case "dividendStreak": {
+      const k = { cashPayout: "cash", dividendGrowth: "growth", dividendStreak: "record" }[key];
+      const c = dividendStory(d)?.checks?.find((x) => x.key === k);
+      return c && c.status !== "na" ? { tone: c.status, value: c.value, text: c.word } : null;
+    }
     case "shortInterest": return isNum(f.shortPercentOfFloat) ? band(f.shortPercentOfFloat, 0.15, 0.05, p1, { good: "Under 5%: normal", ok: "5–15%: elevated", bad: "Over 15%: many investors betting against it" }, false) : null;
     case "ma200": {
       if (!isNum(q.price) || !isNum(q.ma200)) return null;
@@ -1245,6 +1274,209 @@ export function cashUses(d, years = 4) {
   return { rows, span, fcf, buybacks, dividends, debt, acq, issued, returned, shareChg, sh0, sh1, yieldNow, parts, left, tone, label, lines };
 }
 
+// ------------------------------------------------------------------ dividends
+
+const DAY = 864e5;
+export const FREQ_WORD = { 12: "every month", 4: "every quarter", 2: "twice a year", 1: "once a year" };
+const PAY_WORD = { 12: "monthly", 4: "quarterly", 2: "half-yearly", 1: "yearly" };
+const median = (xs) => {
+  const s = xs.filter(isNum).sort((a, b) => a - b);
+  return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null;
+};
+
+// Everything the Dividends tab shows. Thresholds here match the glossary rules for
+// cashPayout, dividendGrowth and dividendStreak (and judge("payoutRatio"/"netDebtToEbitda")).
+export function dividendStory(d) {
+  const dv = d.dividends;
+  if (!dv) return null;
+  const name = shortName(d), isFund = d.type === "ETF", px = d.quote?.price;
+  if (!dv.pays || !dv.payments?.length) return { pays: false, name };
+  const all = dv.payments.map((p) => ({ ...p, t: Date.parse(`${p.date}T12:00:00`), year: +p.date.slice(0, 4) }));
+  const last = all[all.length - 1];
+
+  // how often: the typical gap between the last few payments
+  const gaps = all.slice(-6).map((p, i, a) => (i ? (p.t - a[i - 1].t) / DAY : null)).filter(isNum);
+  const gap = median(gaps);
+  const freq = !isNum(gap) ? 4 : gap <= 45 ? 12 : gap <= 130 ? 4 : gap <= 250 ? 2 : 1;
+
+  // one-time "special" payments (companies only): well above the payments around them
+  for (let i = 0; i < all.length; i++) {
+    const p = all[i];
+    if (isFund) { p.special = false; continue; }
+    const base = median(all.slice(Math.max(0, i - 4), i).map((x) => x.regular ?? x.amount)), next = all[i + 1]?.amount;
+    p.special = isNum(base) && p.amount > 1.8 * base && (next == null ? isNum(dv.forwardRate) && p.amount > (1.5 * dv.forwardRate) / freq : next < p.amount / 1.5);
+    // paid on the normal schedule: Yahoo lumps the regular payment and the special together
+    if (p.special && i && (p.t - all[i - 1].t) / DAY > 0.6 * (gap || 91)) { p.regular = base; p.extra = p.amount - base; }
+  }
+  // Yahoo glitches: a lone tiny payment between two normal ones (VZ, Jul 2000)
+  if (!isFund) for (let i = 1; i < all.length - 1; i++) {
+    const a = all[i - 1].amount, b = all[i].amount, c = all[i + 1].amount;
+    all[i].glitch = !all[i].special && b < a * 0.5 && c >= a * 0.95;
+  }
+  // regular payments; a lumped special counts only its regular part
+  const reg = all.filter((p) => (!p.special || isNum(p.regular)) && !p.glitch).map((p) => (isNum(p.regular) ? { ...p, amount: p.regular, special: false } : p));
+  // each payment's yearly rate, from the typical gap of the schedule it starts (the next few
+  // payments), so one payment missing from Yahoo (VZ, Jul 1997) isn't read as a switch to
+  // twice a year, while MSFT's move from one $0.16 a year to four of $0.08 (2004) is a raise
+  const fq = (days) => (days <= 45 ? 12 : days <= 130 ? 4 : days <= 250 ? 2 : 1);
+  reg.forEach((p, i) => {
+    const gs = [];
+    for (let j = i; j < Math.min(reg.length - 1, i + 3); j++) gs.push((reg[j + 1].t - reg[j].t) / DAY);
+    p.f = gs.length ? fq(median(gs)) : reg[i - 1]?.f ?? freq;
+    p.yearly = p.amount * p.f;
+  });
+  all.forEach((p) => { const r = reg.find((x) => x.date === p.date); if (r) p.yearly = r.yearly; });
+  const lastReg = reg[reg.length - 1] || last;
+  const win = (365 - 182.5 / freq) * DAY; // one year of payments, with slack for dates that drift
+  const ttm = (t) => reg.filter((p) => p.t <= t && p.t > t - win).reduce((s, p) => s + p.amount, 0);
+  const paidRate = isFund ? ttm(last.t) : lastReg.amount * freq;
+  // a raise that's been announced but not paid yet shows up in Yahoo's forward rate
+  const fr = dv.forwardRate;
+  const announced = !isFund && isNum(fr) && fr > paidRate * 1.005 && fr < paidRate * 1.6 ? { rate: fr, each: fr / freq, from: lastReg.amount, chg: fr / paidRate - 1 } : null;
+  const rate = announced ? announced.rate : paidRate;
+  const yld = isNum(px) && px > 0 ? rate / px : null;
+
+  // growth of the yearly payout (trailing 12 months), N years back
+  const growth = {};
+  for (const n of [1, 3, 5, 10]) {
+    const t0 = last.t - n * 365.25 * DAY;
+    if (reg[0].t > t0 - 300 * DAY) continue; // need a full year of payments before the start
+    const a = ttm(t0), b = ttm(last.t);
+    if (a > 0 && b > 0) growth[n] = { from: a, to: b, cagr: (b / a) ** (1 / n) - 1 };
+  }
+
+  // raises and cuts (companies only; a fund's payout moves with what its holdings pay)
+  const raises = [], cuts = [];
+  if (!isFund) for (let i = 1; i < reg.length; i++) {
+    const a = reg[i - 1], b = reg[i];
+    const e = { date: b.date, year: b.year, from: a.amount, to: b.amount, fromYearly: a.yearly, toYearly: b.yearly, freqChange: a.f !== b.f };
+    if (b.yearly > a.yearly * 1.005) raises.push(e);
+    else if (b.yearly < a.yearly * 0.99) cuts.push(e);
+  }
+  const thisYear = new Date().getFullYear(), firstYear = all[0].year;
+  const rYears = new Set(raises.map((r) => r.year)), cYears = new Set(cuts.map((c) => c.year));
+  // Years of raises in a row: a chain of raises at most 18 months apart with no cut, ending
+  // within 18 months of today. Calendar years alone break when a raise shifts from one year
+  // into the next (Target: Aug 2000, then Feb 2002).
+  const GAP = 550 * DAY, tOf = (x) => Date.parse(`${x.date}T12:00:00`);
+  const chain = [];
+  if (!isFund) {
+    const ev = [...raises.map((x) => ({ ...x, up: true })), ...cuts.map((x) => ({ ...x, up: false }))].sort((a, b) => a.date.localeCompare(b.date));
+    let prevT = Date.now();
+    for (let i = ev.length - 1; i >= 0 && ev[i].up && prevT - tOf(ev[i]) <= GAP; i--) { chain.unshift(ev[i]); prevT = tOf(ev[i]); }
+  }
+  const streak = chain.length ? (announced ? thisYear : chain[chain.length - 1].year) - chain[0].year + 1 : announced ? 1 : 0;
+  if (announced) rYears.add(thisYear);
+  // reached the start of our record, and the company was already paying before it
+  const sinceYear = +(dv.firstPaid || all[0].date).slice(0, 4);
+  const streakAtLeast = chain.length > 0 && tOf(chain[0]) - reg[0].t <= GAP && sinceYear < firstYear;
+  const lastCut = cuts[cuts.length - 1] || null, lastRaise = raises[raises.length - 1] || null;
+  const cutText = (c) => (c.freqChange ? `${price(c.fromYearly)} → ${price(c.toYearly)} a year` : `${price(c.from)} → ${price(c.to)} a payment`);
+  const recordYears = (last.t - all[0].t) / (365.25 * DAY);
+  const yearsSinceCut = lastCut ? (Date.now() - Date.parse(`${lastCut.date}T12:00:00`)) / (365.25 * DAY) : null;
+
+  // per calendar year, for the chart (the first year in our record is usually partial)
+  const byYear = [];
+  for (let y = firstYear + 1; y <= thisYear; y++) {
+    const ps = all.filter((p) => p.year === y);
+    if (!ps.length && y < thisYear) { byYear.push({ year: y, regular: 0, special: 0, count: 0, partial: false }); continue; }
+    byYear.push({ year: y, regular: ps.filter((p) => !p.glitch).reduce((s, p) => s + (p.special ? p.regular || 0 : p.amount), 0), special: ps.filter((p) => p.special).reduce((s, p) => s + (p.extra ?? p.amount), 0),
+      count: ps.length, partial: y === thisYear, raised: rYears.has(y), cut: cYears.has(y) });
+  }
+
+  // yield today vs its own past (our monthly trailing-12-month yields)
+  const yh = dv.yieldHistory || { dates: [], values: [] };
+  const ys = yh.values.filter(isNum), ySorted = [...ys].sort((a, b) => a - b);
+  const usual = ys.length >= 24 ? { mid: median(ys), lo: quantile(ySorted, 0.1), hi: quantile(ySorted, 0.9), years: Math.round(ys.length / 12) } : null;
+  const yNow = ys[ys.length - 1] ?? yld;
+  const vsUsual = usual && isNum(yNow) ? (yNow > usual.hi ? "high" : yNow < usual.lo ? "low" : "usual") : null;
+
+  // what dividends added over five years
+  const r = dv.returns;
+  const ret = r && r.rawStart > 0 && r.adjStart > 0 ? {
+    start: r.start, end: r.end, years: (Date.parse(r.end) - Date.parse(r.start)) / (365.25 * DAY),
+    priceOnly: r.rawEnd / r.rawStart - 1, total: r.adjEnd / r.adjStart - 1, rawStart: r.rawStart, rawEnd: r.rawEnd,
+    yoc: rate / r.rawStart,
+  } : null;
+  if (ret) ret.added = ret.total - ret.priceOnly;
+  const income = isNum(px) && px > 0 ? { invest: 10000, shares: 10000 / px, year: (10000 / px) * rate, each: (10000 / px) * rate / freq } : null;
+
+  // next dates: Yahoo's ex-date can be the one that just passed
+  const today = new Date().toISOString().slice(0, 10);
+  const exDate = dv.exDate || null, payDate = dv.payDate || null;
+
+  // safety checklist (companies only)
+  const checks = [];
+  if (!isFund) {
+    const q = (d.financials?.quarterly || []).slice(-4);
+    const qOk = q.length === 4 && q.every((x) => isNum(x.freeCashflow));
+    const div12 = qOk ? -q.reduce((s, x) => s + (isNum(x.dividendsPaid) ? x.dividendsPaid : 0), 0) : null;
+    const fcf12 = qOk ? q.reduce((s, x) => s + x.freeCashflow, 0) : null;
+    const an = (d.financials?.annual || []).filter((x) => isNum(x.freeCashflow)).slice(-4);
+    const divA = -an.reduce((s, x) => s + (isNum(x.dividendsPaid) ? x.dividendsPaid : 0), 0), fcfA = an.reduce((s, x) => s + x.freeCashflow, 0);
+    const cp = isNum(fcf12) && fcf12 > 0 && div12 > 0 ? div12 / fcf12 : null;
+    const fy = (x) => `FY${x.period.slice(2, 4)}`;
+    const cash = { key: "cash", label: "Paid from cash", term: "cashPayout", fcf12, div12, payout: cp,
+      multi: an.length >= 2 && fcfA > 0 && divA > 0 ? { payout: divA / fcfA, span: `${fy(an[0])}–${fy(an[an.length - 1])}`, div: divA, fcf: fcfA } : null };
+    if (isNum(fcf12) && fcf12 <= 0 && div12 > 0) Object.assign(cash, { status: "bad", word: "No spare cash", value: "Free cash flow negative",
+      text: `Over the last 4 quarters ${name} paid ${money(div12)} in dividends while its free cash flow was ${money(fcf12)}, so the dividend came from savings or borrowing.` });
+    else if (isNum(cp)) Object.assign(cash, { status: cp < 0.6 ? "good" : cp <= 0.9 ? "ok" : "bad", word: cp < 0.6 ? "Comfortable" : cp <= 0.9 ? "Tight" : "Stretched",
+      value: `${pct(cp, { digits: 0 })} of free cash flow`,
+      text: `Last 4 quarters: ${money(div12)} of dividends ÷ ${money(fcf12)} of free cash flow = ${pct(cp, { digits: 0 })}. ${cp < 0.6 ? "Plenty left over for the business, debt or buybacks." : cp <= 0.9 ? "Most of the spare cash goes to the dividend, so a bad year leaves little room." : "It pays out nearly all (or more than) the cash it has spare."}` });
+    else Object.assign(cash, { status: "na", word: "No data", value: "—", text: "The cash-flow statements needed for this aren't available." });
+    checks.push(cash);
+
+    const pj = judge("payoutRatio", d), pr = d.valuation?.payoutRatio;
+    checks.push(pj ? { key: "profit", label: "Paid from profit", term: "payoutRatio", status: pj.tone, word: pj.tone === "good" ? "Comfortable" : pj.tone === "ok" ? "Stretched" : "Over 100%", value: `${pct(pr, { digits: 0 })} of profit`,
+      text: `Dividends take ${pct(pr, { digits: 0 })} of the last 12 months' profit (Yahoo's payout ratio). ${pj.text}.${pr > 1 && isNum(cp) && cp < 0.9 ? " Cash flow covers it, though: profit can be pulled down by non-cash charges like write-downs." : ""}` }
+      : { key: "profit", label: "Paid from profit", term: "payoutRatio", status: "na", word: "No data", value: "—", text: "No payout ratio available (or no profit to compare against)." });
+
+    const lj = judge("netDebtToEbitda", d);
+    checks.push(lj ? { key: "debt", label: "Debt load", term: "netDebtToEbitda", status: lj.tone, word: lj.tone === "good" ? "Light" : lj.tone === "ok" ? "Manageable" : "Heavy", value: lj.value === "Net cash" ? "More cash than debt" : `Net debt ${lj.value} EBITDA`,
+      text: `${lj.text}. Interest and debt repayments come before dividends, so heavy debt is the most common reason companies cut.${leverageNotes(d) ? ` ${leverageNotes(d).lines.join(" ").replace(/\*\*/g, "")}` : ""}` }
+      : { key: "debt", label: "Debt load", term: "netDebtToEbitda", status: "na", word: "No data", value: "—", text: "Not enough balance-sheet data." });
+
+    const tr = { key: "record", label: "Track record", term: "dividendStreak" };
+    if (lastCut && yearsSinceCut < 3) Object.assign(tr, { status: "bad", word: "Cut recently", value: `Cut in ${lastCut.year}`, text: `It cut the dividend in ${date(lastCut.date, { month: "short", year: "numeric" })} (${cutText(lastCut)}). Recent cuts tend to signal the business is under pressure.` });
+    else if (lastCut && yearsSinceCut < 10) Object.assign(tr, { status: "ok", word: "Cut in the last 10 years", value: `Last cut ${lastCut.year}`, text: `It cut the dividend in ${lastCut.year} (${cutText(lastCut)}) and ${streak ? `has raised it ${streak} year${streak === 1 ? "" : "s"} in a row since` : "hasn't cut since"}.` });
+    else if (recordYears < 10 && !lastCut) Object.assign(tr, { status: "na", word: "Too new to judge", value: `Paying since ${sinceYear}`, text: `${name} only started paying in ${sinceYear}, so there's no long record yet.${streak ? ` It has raised it every year so far.` : ""}` });
+    else Object.assign(tr, { status: "good", word: streak >= 10 ? "Long record of raises" : "No cuts in 10+ years", value: streak ? `${streak}${streakAtLeast ? "+" : ""} year${streak === 1 && !streakAtLeast ? "" : "s"} of raises` : `No cut since ${lastCut ? lastCut.year : `at least ${firstYear}`}`,
+      text: lastCut ? `No cut since ${lastCut.year}${streak ? `, and ${streak} years of raises in a row` : ""}.` : `No cut in the ${Math.floor(recordYears)} years of payments on record${streak ? `, with ${streak}${streakAtLeast ? "+" : ""} years of raises in a row` : ""}.` });
+    checks.push(tr);
+
+    const g = growth[5] || growth[3], gn = growth[5] ? 5 : 3;
+    checks.push(g ? { key: "growth", label: "Beats inflation", term: "dividendGrowth", status: g.cagr >= 0.05 ? "good" : g.cagr >= 0.02 ? "ok" : "bad",
+      word: g.cagr >= 0.05 ? "Growing well" : g.cagr >= 0.02 ? "About inflation" : g.cagr >= 0 ? "Falling behind inflation" : "Shrinking", value: `${pct(g.cagr, { sign: true })} a year over ${gn} years`,
+      text: `The yearly payout went from ${price(g.from)} to ${price(g.to)} a share over ${gn} years: ${pct(g.cagr, { sign: true })} a year. Prices have risen roughly 2–3% a year over the long run, so ${g.cagr >= 0.02 ? "the income has kept its buying power" : "the income buys a little less each year"}.` }
+      : { key: "growth", label: "Beats inflation", term: "dividendGrowth", status: "na", word: "Too new to judge", value: "Under 3 years of payments", text: "Needs at least 3 years of payments to measure growth." });
+  }
+  const tally = overall(checks);
+  const verdict = tally.score == null ? null : tally.score >= 75 ? { tone: "good", label: "Looks well covered" } : tally.score >= 50 ? { tone: "ok", label: "A few things to watch" } : { tone: "bad", label: "Under strain" };
+
+  // the plain-English summary
+  const lines = [];
+  if (isFund) lines.push(`${name} paid out **${price(rate)} a share over the last 12 months**, ${PAY_WORD[freq]}. At today's ${price(px)} that's a **${pct(yld, { digits: 2 })} yield**. A fund passes on what its companies pay, so each payment differs a little.`);
+  else if (announced) lines.push(`${name} pays ${price(lastReg.amount)} a share ${FREQ_WORD[freq]} and has **announced a raise to ${price(announced.each)}** (${pct(announced.chg, { sign: true })}), about **${price(rate)} a year**. At today's ${price(px)} price that's a **${pct(yld, { digits: 2 })} yield**.`);
+  else lines.push(`${name} pays **${price(lastReg.amount)} a share ${FREQ_WORD[freq]}**, about **${price(rate)} a year**. At today's ${price(px)} price that's a **${pct(yld, { digits: 2 })} yield**.`);
+  if (!isFund) {
+    if (streak >= 1) lines.push(`It has **raised its dividend ${sinceYear >= thisYear - streak ? `every year since it started paying in ${sinceYear}` : `${streak}${streakAtLeast ? "+" : ""} year${streak === 1 ? "" : "s"} in a row`}**${streakAtLeast ? ` (our record starts in ${firstYear})` : ""}${lastRaise ? `; the latest raise was ${pct(lastRaise.toYearly / lastRaise.fromYearly - 1, { digits: 1 })}, in ${date(lastRaise.date, { month: "short", year: "numeric" })}` : ""}.`);
+    else if (lastRaise) lines.push(`Its last raise was in ${date(lastRaise.date, { month: "short", year: "numeric" })}${lastCut && lastCut.date > lastRaise.date ? "" : "; it hasn't raised it since"}.`);
+    if (lastCut) lines.push(`It last **cut its dividend in ${lastCut.year}** (${cutText(lastCut)}).`);
+    else lines.push(`It has paid a dividend since ${sinceYear}, with **no cuts** in the ${Math.max(1, Math.floor(recordYears))} years on record.`);
+    const sp = all.filter((p) => p.special && p.year > thisYear - 15), spYears = [...new Set(sp.map((p) => p.year))];
+    if (sp.length) lines.push(`It also paid ${sp.length === 1 ? "a one-time special dividend" : "one-time special dividends"} in ${spYears.join(", ")} (${sp.map((p) => price(p.extra ?? p.amount)).join(", ")}), left out of the growth and yield.`);
+  }
+  const g5 = growth[5] || growth[3];
+  if (g5) lines.push(`Over ${growth[5] ? 5 : 3} years the yearly payout grew **${pct(g5.cagr, { sign: true })} a year**${growth[10] ? `, and ${pct(growth[10].cagr, { sign: true })} a year over 10` : ""}.`);
+  if (vsUsual) lines.push(vsUsual === "high" && growth[1]?.cagr > 0.25 ? `Today's yield is **higher than usual** for ${name} (its middle over ${usual.years} years: ${pct(usual.mid, { digits: 2 })}), mainly because the dividend itself rose ${pct(growth[1].cagr, { digits: 0 })} in the last year.`
+    : vsUsual === "high" ? `Today's yield is **higher than usual** for ${name} (its middle over ${usual.years} years: ${pct(usual.mid, { digits: 2 })}). That happens when the price falls faster than the dividend: either a bargain or a sign the market doubts the dividend.`
+    : vsUsual === "low" ? `Today's yield is **lower than usual** for ${name} (its middle over ${usual.years} years: ${pct(usual.mid, { digits: 2 })}), mostly because the price has risen faster than the dividend.`
+    : `Today's yield is **in its usual range** (${pct(usual.lo, { digits: 1 })}–${pct(usual.hi, { digits: 1 })} over ${usual.years} years).`);
+
+  return { pays: true, name, isFund, freq, announced, paidRate, freqWord: FREQ_WORD[freq], payWord: PAY_WORD[freq], last, lastReg, rate, yld, growth, raises, cuts, streak, streakAtLeast, lastCut, lastRaise,
+    recordYears, sinceYear, firstYear, byYear, yh, usual, yNow, vsUsual, ret, income, exDate, payDate, today, checks, tally, verdict, lines, payments: all };
+}
+
 // ------------------------------------------------------------------ what changed since your last look
 
 // The few numbers compared between visits. Stored in this browser only.
@@ -1259,6 +1491,7 @@ export function fingerprint(d, score) {
     report: maxDate((e.history || []).map((x) => x.date)) || null, filing: d.filing?.filed || null,
     insider: maxDate((d.insiders?.transactions || []).map((x) => x.date)) || null,
     er: d.fund?.expenseRatio ?? null,
+    div: d.type === "EQUITY" && d.dividends?.pays ? dividendStory(d)?.lastReg?.amount ?? null : null,
   };
 }
 
@@ -1293,6 +1526,8 @@ export function changesSince(d, b, score) {
     const sold = ins.filter((x) => x.kind === "sell").reduce((t, x) => t + (x.value || 0), 0);
     if (bought > 0) out.push({ tone: "good", text: `Insiders bought ${moneyShort(bought)}`, tab: "analysts" });
     if (sold > 0) out.push({ tone: "note", text: `Insiders sold ${moneyShort(sold)}`, tab: "analysts" });
+    const dc = rel(now.div, b.div);
+    if (isNum(dc) && Math.abs(dc) >= 0.005) out.push({ tone: dc > 0 ? "good" : "bad", text: `Dividend ${dc > 0 ? "raised" : "cut"} ${pct(Math.abs(dc))} to ${price(now.div)} a share`, sub: `from ${price(b.div)} a payment`, tab: "dividends" });
   } else if (isNum(now.er) && isNum(b.er) && Math.abs(now.er - b.er) >= 0.00005) {
     out.push({ tone: now.er < b.er ? "good" : "bad", text: `Fee ${now.er < b.er ? "cut" : "raised"} to ${pct(now.er, { digits: 2 })}`, tab: "summary" });
   }

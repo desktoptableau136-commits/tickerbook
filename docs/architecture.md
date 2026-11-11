@@ -28,7 +28,11 @@ Detailed reference, split out of `CLAUDE.md` to keep that file lean. Read the se
 
 **SEC press release.** `sec_earnings_release()` reads the latest 8-K with Item 2.02 (EDGAR submissions → filing index → EX-99), strips HTML, and keyword-picks guidance, one-off and headline sentences plus adjusted EPS into `d.filing`. Runs only when `SEC_USER_AGENT` is set (a repo **variable** in Actions); otherwise, or on failure, the previous `filing` is kept. Only sentences ending in a period and containing an amount are kept. Some filings are Windows-1252. Many companies (CHTR, MSFT, GOOG) print no adjusted EPS.
 
+**Leverage caveats.** `fundamentals.debtByQuarter` (last 5 quarter-end debt/cash) and `filing.leverage` (`company_leverage()`: the company's own net debt/EBITDA from the press release, skipping target/range sentences; needs `SEC_USER_AGENT`) feed `A.leverageNotes()`. It explains a ≥ 10% debt jump in the last 3 quarters (an acquisition the trailing EBITDA hasn't caught up with: CHTR/Cox, Q3 2026) and the company's figure. It's shown in the Summary debt signal, `judge("netDebtToEbitda")`, the Balance sheet card, the Dividends debt check and the Valuation heavy-debt warning.
+
 **Insiders.** `insider_trades()` stores ~400 days of Form 4 trades as `d.insiders.transactions`, with `kind` (buy/sell/award/gift/exercise/other) classified from Yahoo's `Text` and names reordered from SEC's LAST FIRST form by `insider_name()`. Yahoo's `insider_purchases` summary counts grants as purchases, so it isn't used.
+
+**Dividends.** `dividend_info()` stores `d.dividends` for stocks and funds: up to 30 years of split-adjusted `payments` (by ex-date), `forwardRate` (includes an announced raise), `exDate`/`payDate` (calendar), a monthly trailing-12-month `yieldHistory` and 5-year `returns` (price-only vs dividend-adjusted). Those two need an extra `auto_adjust=False` history call. `{pays: false}` for non-payers; a failed fetch keeps the previous copy.
 
 **Cash uses.** `statement()` also keeps `netDebtIssued`, `acquisitions`, `stockIssued`, `stockComp`. Cash-flow rows keep the statement's signs (money out is negative).
 
@@ -58,11 +62,12 @@ Peer methods are left out with < 4 usable peers or when the middle-half multiple
 - `cashUses()`: free cash flow vs buybacks, dividends, debt, acquisitions, plus share count.
 - `drawdowns()` / `dropStory()`: % below previous high over the price history, and the worst-drop sentences.
 - `fingerprint()` / `changesSince()`: "Since you last looked".
+- `dividendStory()`: everything on the Dividends tab. It flags specials (well above the payments around them; one lumped with a regular payment is split) and Yahoo glitches (a lone tiny payment), and reads each payment's yearly rate from the next few gaps (a missing payment or a yearly→quarterly switch isn't a cut). Raise streak = a chain of raises ≤ 18 months apart (calendar years break when a raise shifts years). 5 safety checks; thresholds match the glossary `cashPayout`/`dividendGrowth`/`dividendStreak` rules and reuse `judge("payoutRatio"/"netDebtToEbitda")`.
 - `moneyShort()`: amounts like $175K / $1.4M.
 
 ## Pages and features (`app.js`)
 
-Hash router: `#/`, `#/t/SYM/<tab>`, `#/learn`, `#/settings`. Equity tabs: Summary, Earnings, Financials, Valuation, Peers, Analysts, News. ETF tabs: Summary, Holdings, News. Tiny `h()` DOM builder.
+Hash router: `#/`, `#/t/SYM/<tab>`, `#/learn`, `#/settings`. Equity tabs: Summary, Earnings, Financials, Dividends, Valuation, Peers, Analysts, News. ETF tabs: Summary, Holdings, Dividends, News. Tiny `h()` DOM builder.
 
 **Rule-of-thumb badges.** `renderTicker` sets module-level `CUR` (cleared in `route()`); `termBtn(key)` appends a thumb from `A.judge(key, CUR)`. The popover and glossary sheet show the same verdict (`judgeBox`).
 

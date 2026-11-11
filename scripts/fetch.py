@@ -299,6 +299,14 @@ def sp500_holdings(yahoo: list):
     return out, as_of
 
 
+def debt_by_quarter(bs: pd.DataFrame, n: int = 5):
+    """Debt and cash at each of the last few quarter ends, to spot a jump (usually an
+    acquisition) that the trailing-12-month EBITDA hasn't caught up with yet."""
+    debt = row(bs, "Total Debt")
+    cash = row(bs, "Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments")
+    return [{"period": k, "debt": debt.get(k), "cash": cash.get(k)} for k in sorted(debt)[-n:] if debt.get(k) is not None]
+
+
 def build_equity(tk: yf.Ticker, info: dict, prices: dict):
     q_inc = quiet(lambda: tk.quarterly_income_stmt, pd.DataFrame())
     q_cash = quiet(lambda: tk.quarterly_cashflow, pd.DataFrame())
@@ -403,6 +411,7 @@ def build_equity(tk: yf.Ticker, info: dict, prices: dict):
             "institutionOwnership": clean(info.get("heldPercentInstitutions")),
             "equity": bs_latest("Stockholders Equity", "Common Stock Equity"),
             "netDebt": bs_latest("Net Debt"),
+            "debtByQuarter": debt_by_quarter(bs),
             "goodwill": bs_latest("Goodwill And Other Intangible Assets", "Goodwill"),
         },
         "analysts": {
@@ -554,6 +563,51 @@ def insider_trades(tk: yf.Ticker, days: int = 400, limit: int = 60):
     return {"transactions": out[:limit]}
 
 
+def dividend_info(tk: yf.Ticker, info: dict, kind: str):
+    """Dividend payments (split-adjusted, up to 30 years), the trailing-12-month yield at each
+    month end over 5 years, and the 5-year return with and without dividends. The yield and the
+    price-only return need prices *not* adjusted for dividends, hence the separate history call."""
+    dv = quiet(lambda: tk.dividends, None)
+    dv = dv[dv > 0] if dv is not None and len(dv) else None
+    if dv is None or not len(dv):
+        return {"pays": False}
+    dv.index = dv.index.tz_localize(None) if dv.index.tz is not None else dv.index
+    cutoff = pd.Timestamp.now() - pd.DateOffset(years=30)
+    out = {
+        "pays": True,
+        "firstPaid": dv.index[0].strftime("%Y-%m-%d"),
+        "payments": [{"date": t.strftime("%Y-%m-%d"), "amount": round(float(a), 4)} for t, a in dv.items() if t >= cutoff],
+        "forwardRate": clean(info.get("dividendRate")),
+        "trailingRate": clean(info.get("trailingAnnualDividendRate")),
+        "fiveYearAvgYield": pct(info.get("fiveYearAvgDividendYield")),
+        "exDate": clean(pd.to_datetime(info["exDividendDate"], unit="s")) if info.get("exDividendDate") else None,
+        "payDate": None,
+    }
+    if kind == "EQUITY":
+        cal = quiet(lambda: tk.calendar, {}) or {}
+        day = lambda v: str(v)[:10] if v else None  # the calendar gives datetime.date objects
+        out["exDate"] = day(cal.get("Ex-Dividend Date")) or out["exDate"]
+        out["payDate"] = day(cal.get("Dividend Date"))
+    h = quiet(lambda: retry(lambda: tk.history(period="5y", interval="1d", auto_adjust=False)), None)
+    if h is not None and not h.empty and "Adj Close" in h:
+        h = h[["Close", "Adj Close"]].dropna()
+        h.index = h.index.tz_localize(None)
+        out["returns"] = {
+            "start": h.index[0].strftime("%Y-%m-%d"), "end": h.index[-1].strftime("%Y-%m-%d"),
+            "rawStart": round(float(h["Close"].iloc[0]), 4), "rawEnd": round(float(h["Close"].iloc[-1]), 4),
+            "adjStart": round(float(h["Adj Close"].iloc[0]), 4), "adjEnd": round(float(h["Adj Close"].iloc[-1]), 4),
+        }
+        dates, vals = [], []
+        for when, close in h["Close"].resample("ME").last().dropna().items():
+            if when - pd.Timedelta(days=365) < dv.index[0]:
+                continue  # a partial first year would understate the yield
+            ttm = float(dv[(dv.index > when - pd.Timedelta(days=365)) & (dv.index <= when)].sum())
+            dates.append(min(when, h.index[-1]).strftime("%Y-%m-%d"))
+            vals.append(round(ttm / float(close), 5) if close else None)
+        out["yieldHistory"] = {"dates": dates, "values": vals}
+    return out
+
+
 def snapshot(d: dict):
     """The handful of numbers worth tracking day by day."""
     s = {"date": d["updated"][:10], "price": d["quote"]["price"]}
@@ -600,6 +654,29 @@ SKIP_RE = re.compile(r"forward-looking|safe harbor|risks and uncertainties|undue
 GUIDE_RE = re.compile(r"\b(outlook|guidance|expects?|expected to|anticipates?|forecasts?|now sees|reaffirm\w*|rais\w+ (its|the) (full|annual))\b", re.I)
 AMOUNT_RE = re.compile(r"\$\s?\d|\d\s?%|\d (million|billion)\b", re.I)
 ONEOFF_RE = re.compile(r"\b(impairment|write-?downs?|write-?offs?|restructuring|severance|merger[- ]related|transaction[- ](related )?costs|integration costs|non-cash charge|one-time|litigation|settlement|gain on (the )?sale|(net )?(gains?|losses?) (from|on) (\w+ )?investments?)\b", re.I)
+# The company's own leverage figure, e.g. "net debt to last twelve months Adjusted EBITDA was
+# 3.9 times" or "net leverage ratio of 2.9x". A dot is allowed only inside a number.
+_NE = r"(?:[^.;]|\.(?=\d))"
+LEV_RE = re.compile(
+    rf"\b(?:leverage|net debt|debt)\b{_NE}{{0,200}}?\bEBITDA\b{_NE}{{0,120}}?(\d{{1,2}}\.\d{{1,2}})\s?(?:x|×|times)(?![a-z])"
+    rf"|\b(?:net )?leverage(?: ratio)?\s+(?:of|was|at|to|is)\s+(?:approximately\s+|about\s+)?(\d{{1,2}}\.\d{{1,2}})\s?(?:x|×|times)(?![a-z])", re.I)
+
+
+def company_leverage(text: str):
+    t = re.sub(r"\s+", " ", text)
+    for m in LEV_RE.finditer(t):
+        v = float(m.group(1) or m.group(2))
+        if not 0.3 <= v <= 15 or re.search(r"target|range|goal|covenant|maximum|no more than", m.group(0), re.I):
+            continue
+        dot = t.rfind(". ", 0, m.start())
+        a = max(dot + 2 if dot >= 0 else 0, m.start() - 250)
+        b = t.find(". ", m.end())
+        snip = t[a:(b + 1 if 0 <= b < m.end() + 200 else m.end())].strip()
+        return {"ratio": v, "text": snip, "proForma": bool(re.search(r"pro forma", snip, re.I)),
+                "adjusted": bool(re.search(r"adjusted ebitda", snip, re.I))}
+    return None
+
+
 ADJ_EPS_RE = re.compile(r"(adjusted|non-gaap)[^.;]{0,40}?(diluted )?(eps|earnings per (diluted )?share|net income per (diluted )?share)[^.;$]{0,60}?\$\s?(\d{1,4}\.\d{2})", re.I)
 
 
@@ -672,7 +749,8 @@ def sec_earnings_release(symbol: str):
     doc = sorted(ex, key=lambda f: (not re.search(r"99[-_.]?1|991", f), f))[0]
     parser = _Text()
     parser.feed(sec_get(f"{folder}/{doc}", as_json=False))
-    sents = list(dict.fromkeys(sentences("".join(parser.out))))
+    raw = "".join(parser.out)
+    sents = list(dict.fromkeys(sentences(raw)))
     adj = None
     for snt in sents:
         m = ADJ_EPS_RE.search(snt)
@@ -689,6 +767,7 @@ def sec_earnings_release(symbol: str):
         "period": sub["reportDate"][pick] or None,
         "url": f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc.replace('-', '')}/{doc}",
         "adjustedEps": adj,
+        "leverage": quiet(lambda: company_leverage(raw), None),
         "highlights": highlights,
         "guidance": guidance,
         "oneOffs": oneoffs,
@@ -744,6 +823,7 @@ def build(symbol: str, tag: str):
     d.update(build_equity(tk, info, prices) if kind == "EQUITY" else build_fund(tk, info))
     if kind == "EQUITY":
         fix_ttm(d)
+    d["dividends"] = quiet(lambda: dividend_info(tk, info, kind), None)
 
     # carry forward our own daily snapshot history (Yahoo doesn't keep this for us)
     old = DATA / f"{symbol}.json"
@@ -754,6 +834,8 @@ def build(symbol: str, tag: str):
             hist = old_d.get("history", [])
         except Exception:
             hist = []
+    if d.get("dividends") is None:
+        d["dividends"] = old_d.get("dividends")  # a failed fetch keeps the last good copy
     if kind == "EQUITY":
         # the press release changes once a quarter, so keep the last good copy if the SEC is unreachable
         d["filing"] = quiet(lambda: sec_earnings_release(symbol), None) or old_d.get("filing")
