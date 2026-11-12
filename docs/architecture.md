@@ -70,6 +70,8 @@ Peer methods are left out with < 4 usable peers or when the middle-half multiple
 
 Hash router: `#/`, `#/t/SYM/<tab>`, `#/learn`, `#/settings`. Equity tabs: Summary, Walkthrough, Earnings, Financials, Dividends, Valuation, Peers, Analysts, News. ETF tabs: Summary, Walkthrough, Holdings, Dividends, News. Tiny `h()` DOM builder.
 
+**Home cards.** Each card shows the checklist score as a small `scoreRing()` (the same ring as Summary's, top right) and `overall().short` (Strong / Mixed / Caution) in the footer, so the earnings date stays on one line. Summary keeps the full `lean` wording.
+
 **Rule-of-thumb badges.** `renderTicker` sets module-level `CUR` (cleared in `route()`); `termBtn(key)` appends a thumb from `A.judge(key, CUR)`. The popover and glossary sheet show the same verdict (`judgeBox`).
 
 **Hover popovers.** On `(hover: hover) and (pointer: fine)`, elements with `data-term` or `data-tip`/`data-tip-title` show a popover (delegated listeners near the end of `app.js`). Click still opens the bottom sheet.

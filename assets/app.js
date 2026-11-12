@@ -340,15 +340,19 @@ function tickerCard(d, tag) {
     : h("span", { class: "muted" }, days != null && days >= 0 ? `Earnings in ${days}d` : `1Y ${A.pct(y1, { sign: true })}`);
   const news = unseenChanges(d);
   return h("a", { class: "card tcard", href: `#/t/${d.symbol}`, "aria-label": `${d.symbol}, ${A.price(d.quote.price)}, ${ov.lean}${news.length ? `, ${news.length} changes since you last looked` : ""}` },
-    h("div", { class: "tcard-top" }, h("span", { class: "tcard-sym" }, d.symbol), h("span", { class: `tag ${tag}` }, tag),
-      news.length ? h("span", { class: "new-badge", "data-tip": news.map((x) => x.text).join(" · "), "data-tip-title": "Since you last looked" }, `${news.length} new`) : null),
-    h("div", { class: "tcard-name" }, d.name),
+    h("div", { class: "tcard-head" },
+      h("div", { class: "grow" },
+        h("div", { class: "tcard-top" }, h("span", { class: "tcard-sym" }, d.symbol), h("span", { class: `tag ${tag}` }, tag),
+          news.length ? h("span", { class: "new-badge", "data-tip": news.map((x) => x.text).join(" · "), "data-tip-title": "Since you last looked" }, `${news.length} new`) : null),
+        h("div", { class: "tcard-name" }, d.name)),
+      h("span", { class: "has-tip", "data-tip": `${ov.lean}${ov.score != null ? `: ${ov.good} of ${ov.total} checks positive${ov.bad ? `, ${ov.bad} negative` : ""}` : ""}. A simple checklist tally out of 100, not a prediction. Open the ticker to see each check.`, "data-tip-title": ov.score != null ? `Score ${ov.score}` : "No score yet" },
+        scoreRing(ov, 40, 4, "mini"))),
     h("div", { class: "tcard-mid" },
       h("div", {},
         h("div", { class: "tcard-price tnum" }, A.price(d.quote.price)),
         h("div", { class: `tcard-chg tnum ${signClass(d.quote.changePct)}` }, `${arrow(d.quote.changePct)} ${A.pct(d.quote.changePct, { digits: 2, sign: true })} today`)),
       h("div", { html: sparkline(closes, { width: 104, height: 36 }) })),
-    h("div", { class: "tcard-foot" }, pill(ov.tone, ov.lean), foot));
+    h("div", { class: "tcard-foot" }, pill(ov.tone, ov.short), foot));
 }
 
 // ================================================================ ticker page
@@ -543,13 +547,19 @@ function priceCard(d) {
   return card(null, { area: "chart", class: "span" }, h("div", { class: "chart-controls" }, chips, h("div", { class: "toggles" }, tog, dropTog), perf), box);
 }
 
+// The checklist score as a ring filled to the score, in its status color (always shown with the word nearby).
+function scoreRing(ov, size = 76, stroke = 8, cls = "") {
+  const r = (size - stroke) / 2, c = size / 2, C = 2 * Math.PI * r;
+  const color = ov.tone === "good" ? "good" : ov.tone === "ok" ? "warn" : "bad";
+  return h("div", { class: `score-ring ${cls}`, role: "img", "aria-label": ov.score != null ? `Score ${ov.score} out of 100` : "No score yet" },
+    h("div", { html: `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true"><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="var(--surface-2)" stroke-width="${stroke}"/>${ov.score ? `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="var(--${color})" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${(C * ov.score) / 100} ${C}"/>` : ""}</svg>` }),
+    h("div", { class: "val tnum" }, ov.score ?? "—"));
+}
+
 // ---------------------------------------------------------------- summary
 function verdictCard(d) {
   const sig = signalsFor(d), ov = A.overall(sig);
-  const C = 2 * Math.PI * 32;
-  const ring = h("div", { class: "score-ring", "aria-label": `Score ${ov.score} out of 100` },
-    h("div", { html: `<svg width="76" height="76" viewBox="0 0 76 76" aria-hidden="true"><circle cx="38" cy="38" r="32" fill="none" stroke="var(--surface-2)" stroke-width="8"/><circle cx="38" cy="38" r="32" fill="none" stroke="var(--${ov.tone === "good" ? "good" : ov.tone === "ok" ? "warn" : "bad"})" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(C * (ov.score || 0)) / 100} ${C}"/></svg>` }),
-    h("div", { class: "val tnum" }, ov.score ?? "—"));
+  const ring = scoreRing(ov);
   const strengths = sig.filter((s) => s.status === "good").map((s) => s.label.toLowerCase());
   const concerns = sig.filter((s) => s.status === "bad").map((s) => s.label.toLowerCase());
   const list = (a) => (a.length > 1 ? `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}` : a[0]);

@@ -297,14 +297,16 @@ export function fundSignals(d, watchSymbols = []) {
 
 export function overall(signals) {
   const scored = signals.filter((s) => s.status !== "na");
-  if (!scored.length) return { score: null, lean: "Not enough data", tone: "na" };
+  if (!scored.length) return { score: null, lean: "Not enough data", short: "No score", tone: "na" };
   const pts = scored.reduce((t, s) => t + (s.status === "good" ? 1 : s.status === "ok" ? 0.5 : 0), 0);
   const score = Math.round((pts / scored.length) * 100);
   const good = scored.filter((s) => s.status === "good").length;
   const bad = scored.filter((s) => s.status === "bad").length;
   const lean = score >= 70 ? "Looks strong" : score >= 45 ? "Mixed picture" : "Proceed with caution";
   const tone = score >= 70 ? "good" : score >= 45 ? "ok" : "bad";
-  return { score, lean, tone, good, bad, total: scored.length };
+  // short: the same verdict in one word, for the home cards
+  const short = { good: "Strong", ok: "Mixed", bad: "Caution" }[tone];
+  return { score, lean, short, tone, good, bad, total: scored.length };
 }
 
 // ------------------------------------------------------------------ narratives

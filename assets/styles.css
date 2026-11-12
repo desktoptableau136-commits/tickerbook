@@ -201,9 +201,12 @@ main { max-width: 1180px; margin: 0 auto; padding: 16px var(--gutter) 96px; }
 .tcard { display: block; color: inherit; cursor: pointer; transition: border-color .15s, transform .15s; }
 .tcard:hover { text-decoration: none; border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .tcard:active { transform: scale(0.99); }
-.tcard-top { display: flex; align-items: center; gap: 8px; }
+.tcard-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .tcard-sym { font-size: 18px; font-weight: 750; letter-spacing: -0.01em; }
 .tcard-name { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 1px 0 10px; }
+.tcard-head { display: flex; align-items: flex-start; gap: 10px; }
+.tcard-head .grow { flex: 1 1 auto; min-width: 0; }
+.tcard-head .has-tip { text-decoration: none; flex: none; }
 .tcard-mid { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
 .tcard-price { font-size: 24px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; }
 .tcard-chg { font-size: 13.5px; font-weight: 600; }
@@ -262,6 +265,8 @@ td.sym a { font-weight: 700; color: var(--ink); }
 .score-ring { flex: none; width: 76px; height: 76px; position: relative; }
 .score-ring svg { transform: rotate(-90deg); }
 .score-ring .val { position: absolute; inset: 0; display: grid; place-items: center; font-size: 22px; font-weight: 700; }
+.score-ring.mini { width: 40px; height: 40px; }
+.score-ring.mini .val { font-size: 13.5px; }
 .verdict h2 { font-size: 21px; letter-spacing: -0.01em; }
 .signals { margin-top: 14px; }
 .signal { border-top: 1px solid var(--border); }
@@ -810,7 +815,7 @@ html.dash-on .dash-valuation .method[open] { grid-column: 1 / -1; }
 .chg.up .ic { color: var(--up-text); } .chg.down .ic { color: var(--down-text); }
 .chg.good .ic { color: var(--good); } .chg.bad .ic { color: var(--bad); } .chg.note .ic { color: var(--muted); }
 .changes-x { margin-left: auto; }
-.new-badge { margin-left: auto; height: 20px; padding: 0 8px; border-radius: 999px; display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 700; color: #fff; background: var(--accent); }
+.new-badge { flex: none; white-space: nowrap; height: 20px; padding: 0 8px; border-radius: 999px; display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 700; color: #fff; background: var(--accent); }
 
 /* price chart toggles + drops */
 .toggles { display: inline-flex; gap: 14px; flex-wrap: wrap; }
