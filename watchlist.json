@@ -34,7 +34,10 @@
     },
     {
       "symbol": "SPCX",
-      "tag": "researching"
+      "tag": "archived",
+      "archivedOn": "2026-11-12",
+      "archivedPrice": 139.75,
+      "archivedPriceDate": "2026-11-11"
     }
   ]
 }
