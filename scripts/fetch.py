@@ -6,7 +6,7 @@ Usage:
   python scripts/fetch.py --action remove --ticker NVDA
   python scripts/fetch.py --action tag --ticker NVDA --tag archived
   python scripts/fetch.py --action edit --order "GOOG:watching,NVDA:researching,TGT:archived,-VZ"
-      (the "Edit list" save: new order + tags; "-SYM" deletes an archived ticker)
+      (the "Edit list" save: new order + tags; "-SYM" deletes a ticker; the UI only offers it on rows set to Archived)
 
 Archived tickers are skipped by the daily refresh but keep their file and snapshot history.
 
@@ -1031,14 +1031,14 @@ def main():
             report(False, "That list of changes didn't look right.")
             return
         by = {t["symbol"]: t for t in wl["tickers"]}
-        deleted, kept_active = [], []
+        # The Edit list only offers delete on rows set to Archived, which may happen in this same
+        # save, so the safeguard lives there; a ticker still active here was archived in the request.
+        deleted = []
         for x in drop:
-            if x in by and by[x]["tag"] == "archived":  # only archived tickers can be deleted
+            if x in by:
                 wl["tickers"].remove(by[x])
                 (DATA / f"{x}.json").unlink(missing_ok=True)
                 deleted.append(x)
-            elif x in by:
-                kept_active.append(x)
         back = [by[x] for x, tg in keep if x in by and set_tag(by[x], tg)]
         pos = {x: n for n, (x, _) in enumerate(keep)}
         # anything not in the request (say, added meanwhile) keeps its relative place at the end
@@ -1051,8 +1051,6 @@ def main():
         msg = ["Saved your list."]
         if deleted:
             msg.append(f"Deleted {', '.join(deleted)}.")
-        if kept_active:
-            msg.append(f"Didn't delete {', '.join(kept_active)}: only archived tickers can be deleted.")
         if back and len(failed) < len(back):
             msg.append(f"Refreshed {', '.join(e['symbol'] for e in back if e['symbol'] not in failed)}.")
         if failed:

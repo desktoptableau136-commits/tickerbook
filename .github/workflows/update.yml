@@ -26,7 +26,7 @@ on:
         options: [researching, watching, archived]
         default: researching
       order:
-        description: "For edit: SYM:tag,SYM:tag,-SYM in the new order (-SYM deletes an archived ticker)"
+        description: "For edit: SYM:tag,SYM:tag,-SYM in the new order (-SYM deletes a ticker)"
         required: false
         default: ""
       request_id:
