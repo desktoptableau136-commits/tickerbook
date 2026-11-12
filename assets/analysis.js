@@ -400,26 +400,6 @@ export function shortName(d) {
 
 // ------------------------------------------------------------------ fair-value model
 
-// Price today = (EPS in N years × exit P/E) ÷ (1 + required return)^N
-export function fairValue({ eps, growth, years, exitPE, discount }) {
-  if (!isNum(eps) || eps <= 0) return null;
-  const future = eps * Math.pow(1 + growth, years) * exitPE;
-  return future / Math.pow(1 + discount, years);
-}
-
-export function impliedGrowth(priceNow, { eps, years, exitPE, discount }) {
-  if (!isNum(eps) || eps <= 0 || !isNum(priceNow)) return null;
-  // solve fairValue(g) = price by bisection over -50%..+100%
-  let lo = -0.5, hi = 1;
-  for (let i = 0; i < 80; i++) {
-    const mid = (lo + hi) / 2;
-    const fv = fairValue({ eps, growth: mid, years, exitPE, discount });
-    if (fv > priceNow) hi = mid; else lo = mid;
-  }
-  const g = (lo + hi) / 2;
-  return g > 0.99 || g < -0.49 ? null : g;
-}
-
 // Growth analysts expect over the next two fiscal years, averaged (compounded) so a
 // one-year rebound after a weak year doesn't get treated as the long-run rate.
 export function twoYearGrowth(d) {

@@ -436,6 +436,17 @@ function archiveNote(d, sym) {
   return parts.length ? h("div", { class: "notice arch-note" }, ...parts.flatMap((x, i) => (i ? [h("br"), x] : [x]))) : "";
 }
 
+// "Show all": hides a list's rows past the first `show` and returns the toggle button (null if not needed).
+function showMore(list, show) {
+  const rows = [...list.children];
+  if (rows.length <= show) return null;
+  rows.slice(show).forEach((r) => r.classList.add("extra"));
+  const label = `Show all ${rows.length}`;
+  const btn = h("button", { class: "linkish small", type: "button", style: "margin-top:8px",
+    on: { click: () => { list.classList.toggle("all"); btn.textContent = list.classList.contains("all") ? "Show fewer" : label; fitDash(); } } }, label);
+  return btn;
+}
+
 // A tab's grid. On laptops (html.dash-on) CSS turns it into a fixed-height, one-screen layout.
 const grid = (name, flow = false) => h("div", { class: `cols dash dash-${name}${flow ? " dash-flow" : ""}` });
 
@@ -1083,20 +1094,18 @@ function tabDividends(d, body) {
   }
 
   // ---- payments
-  const SHOW = 7;
   const pays = [...s.payments].reverse().slice(0, 60);
   const list = h("div", { class: "pay-list" }, pays.map((p, i) => {
     // compared per year, so a switch from yearly to quarterly payments isn't a "cut"
     const prev = pays.slice(i + 1).find((x) => isNum(x.yearly));
     const ch = !s.isFund && isNum(p.yearly) && prev ? p.yearly / prev.yearly - 1 : null;
-    return h("div", { class: `list-row${i >= SHOW ? " extra" : ""}` },
+    return h("div", { class: "list-row" },
       h("div", { class: "grow" }, fd(p.date)),
       p.special ? h("span", { class: "small muted" }, termBtn("specialDividend", "Special")) : p.glitch ? h("span", { class: "small muted has-tip", "data-tip": "A payment far below the ones either side of it, which the company never actually made. Left out of every figure." }, "Data error, ignored")
         : isNum(ch) && Math.abs(ch) >= 0.005 ? h("span", { class: `small tnum ${signClass(ch)}` }, `${arrow(ch)} ${ch > 0 ? "Raised" : "Cut"} ${ch >= 1 ? A.riseText(ch).replace(" as much", "") : A.pct(Math.abs(ch))}`) : null,
       h("span", { class: "tnum pay-amt" }, A.price(p.amount)));
   }));
-  const more = pays.length > SHOW ? h("button", { class: "linkish small", type: "button", style: "margin-top:8px",
-    on: { click: () => { list.classList.toggle("all"); more.textContent = list.classList.contains("all") ? "Show fewer" : `Show all ${pays.length}`; fitDash(); } } }, `Show all ${pays.length}`) : null;
+  const more = showMore(list, 7);
   g.append(card("Payments", { area: "pays", term: "exDividend", sub: `Per share, by ex-dividend date${s.isFund ? "" : " · adjusted for stock splits"}` }, list, more));
 
   body.append(g);
@@ -1415,19 +1424,13 @@ function tabAnalysts(d, body) {
   }
 
   if ((a.actions || []).length) {
-    const SHOW = 15;
     const list = h("div", { class: "actions-grid" });
-    const more = a.actions.length > SHOW ? h("button", { class: "linkish small", type: "button", style: "margin-top:8px",
-      on: { click: () => { list.classList.toggle("all"); more.textContent = list.classList.contains("all") ? "Show fewer" : `Show all ${Math.min(25, a.actions.length)}`; fitDash(); } } }, `Show all ${Math.min(25, a.actions.length)}`) : null;
-    g.append(card("Recent rating changes", { area: "actions", class: "span",
-      sub: "Each firm's latest move. The colored edge is the firm's rating now. Firms use different words for the same three ratings; hover a rating for its meaning." },
-      legend(RATING_NAMES.map((n, i) => ({ name: `${n} (e.g. ${["Overweight, Outperform", "Neutral, Equal-Weight, Sector Perform", "Underweight, Underperform"][i]})`, color: RATING_COLORS[i] }))), list, more));
     const ACT = { up: ["good", "▲", "Upgrade", "Raised its rating"], down: ["bad", "▼", "Downgrade", "Lowered its rating"], init: ["na", "•", "New coverage", "Started covering the stock"],
       main: ["na", "=", "Kept", "Kept its rating (and often updated its target)"], reit: ["na", "=", "Kept", "Repeated its rating"] };
-    list.append(...a.actions.slice(0, 25).map((x, i) => {
+    list.append(...a.actions.slice(0, 25).map((x) => {
         const [tone, ic, word, tip] = ACT[x.action] || ACT.main;
         const tchg = isNum(x.priorTarget) && x.priorTarget > 0 && isNum(x.target) && x.priorTarget !== x.target ? x.target - x.priorTarget : null;
-        return h("div", { class: `list-row arow${i >= SHOW ? " extra" : ""}`, style: x.to ? `border-left-color:${RATING_COLORS[RATING_GROUP(x.to)]}` : null },
+        return h("div", { class: "list-row arow", style: x.to ? `border-left-color:${RATING_COLORS[RATING_GROUP(x.to)]}` : null },
           h("div", { class: "grow" },
             h("div", {}, h("b", {}, x.firm || "—"), h("span", { class: "muted small" }, ` · ${A.date(x.date, { month: "short", day: "numeric", year: "numeric" })}`)),
             h("div", { class: "small ink2", style: "margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap" },
@@ -1439,21 +1442,22 @@ function tabAnalysts(d, body) {
             tchg != null ? [h("div", { class: signClass(tchg), style: "font-weight:600" }, `${tchg > 0 ? "▲" : "▼"} ${A.price(Math.abs(tchg))} (${A.pct(tchg / x.priorTarget, { sign: true })})`), h("div", { class: "muted" }, `from ${A.price(x.priorTarget)}`)]
               : h("div", { class: "muted" }, x.targetAction === "Maintains" ? "target unchanged" : "target")) : null);
       }));
+    g.append(card("Recent rating changes", { area: "actions", class: "span",
+      sub: "Each firm's latest move. The colored edge is the firm's rating now. Firms use different words for the same three ratings; hover a rating for its meaning." },
+      legend(RATING_NAMES.map((n, i) => ({ name: `${n} (e.g. ${["Overweight, Outperform", "Neutral, Equal-Weight, Sector Perform", "Underweight, Underperform"][i]})`, color: RATING_COLORS[i] }))), list, showMore(list, 15)));
   }
 
   const ins = A.insiderSummary(d);
   if (ins) {
     const trades = ins.recent.filter((x) => x.kind === "buy" || x.kind === "sell");
-    const SHOW = 8;
-    const list = h("div", { class: "ins-list" }, trades.map((x, i) => h("div", { class: `list-row${i >= SHOW ? " extra" : ""}` },
+    const list = h("div", { class: "ins-list" }, trades.map((x) => h("div", { class: "list-row" },
       h("div", { class: "grow" },
         h("div", {}, h("b", {}, x.name), x.role ? h("span", { class: "muted small" }, ` · ${x.role}`) : null),
         h("div", { class: "small muted" }, `${A.date(x.date)} · ${A.num(x.shares, 0)} shares${isNum(x.price) ? ` at ~${A.price(x.price)}` : ""}${x.indirect ? " · includes shares held indirectly (trust, family)" : ""}`)),
       h("div", { style: "text-align:right" },
         x.kind === "buy" ? h("span", { class: "pill good" }, h("span", { class: "ic", "aria-hidden": "true" }, "▲"), "Bought") : h("span", { class: "pill na" }, h("span", { class: "ic", "aria-hidden": "true" }, "▼"), "Sold"),
         h("div", { class: "small tnum", style: "margin-top:3px;font-weight:600" }, A.moneyShort(x.value))))));
-    const more = trades.length > SHOW ? h("button", { class: "linkish small", type: "button", style: "margin-top:8px",
-      on: { click: () => { list.classList.toggle("all"); more.textContent = list.classList.contains("all") ? "Show fewer" : `Show all ${trades.length}`; fitDash(); } } }, `Show all ${trades.length}`) : null;
+    const more = showMore(list, 8);
     g.append(card("What insiders are doing", { area: "insiders", class: "span", term: "insiders", right: pill(ins.tone, ins.label),
       sub: "Trades by the company's own executives and directors in the last 12 months, from their SEC filings (Form 4)" },
       h("div", { class: "ins" },
@@ -1780,14 +1784,14 @@ function startTask({ action, ticker = "", tag = "researching", order = "", title
   GH.runUpdate({ action, ticker, tag, order }, (p) => { task.progress = p; notify(); })
     .then(async (res) => {
       task.result = res;
-      // a reorder already shows its new order; reload either way so a failed one snaps back
-      if (res.ok || action === "reorder") {
+      // Edit list already shows its new order; reload either way so a failed save snaps back
+      if (res.ok || action === "edit") {
         try { await loadAll(); } catch (e) { console.warn(e); }
       }
     })
     .catch(async (e) => {
       task.error = e.message;
-      if (action === "reorder") { try { await loadAll(); } catch {} }
+      if (action === "edit") { try { await loadAll(); } catch {} }
     })
     .finally(() => {
       task.running = false; notify(); updatePill();

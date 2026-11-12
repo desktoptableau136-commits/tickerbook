@@ -97,7 +97,6 @@ p { margin: 0 0 10px; }
 .up { color: var(--up-text); }
 .down { color: var(--down-text); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* ------------------------------------------------------------ app chrome */
 .top {
@@ -234,8 +233,6 @@ td.sym a { font-weight: 700; color: var(--ink); }
 
 /* ------------------------------------------------------------ ticker page */
 .back { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); font-size: 14px; font-weight: 550; margin-bottom: 8px; }
-.qhead { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-.qhead h1 { font-size: 28px; letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .qname { color: var(--ink-2); font-size: 14px; margin-top: 2px; }
 .qprice { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 12px 0 4px; }
 .qprice .big { font-size: 44px; font-weight: 650; letter-spacing: -0.03em; line-height: 1; }
@@ -286,7 +283,6 @@ td.sym a { font-weight: 700; color: var(--ink); }
 /* range figure (52-week, price targets) */
 .range { margin: 8px 0 4px; }
 .range-track { position: relative; height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--series-1) 18%, var(--surface-2)); }
-.range-fill { position: absolute; top: 0; bottom: 0; border-radius: 999px; background: var(--series-1); opacity: 0.55; }
 .range-dot { position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: var(--ink); border: 3px solid var(--surface); }
 .range-dot.mean { background: var(--series-1); }
 .range-labels { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
@@ -344,7 +340,6 @@ td.sym a { font-weight: 700; color: var(--ink); }
 .story-line.plain .ic { background: var(--series-muted); }
 
 /* valuation calculator */
-.calc { display: grid; gap: 16px; }
 .slider label { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; margin-bottom: 4px; }
 .slider label b { font-variant-numeric: tabular-nums; }
 .slider input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
@@ -463,6 +458,10 @@ td.sym a { font-weight: 700; color: var(--ink); }
   .signals { display: grid; grid-template-columns: 1fr 1fr; column-gap: 32px; }
 }
 
+/* "Show all": rows past the first batch stay hidden until the list gets .all (showMore() in app.js) */
+.list-row.extra { display: none; }
+.all > .list-row.extra { display: flex; }
+
 /* ============================================================ hover popovers */
 .pop {
   position: fixed; z-index: 60; max-width: 360px; padding: 12px 14px; border-radius: 12px;
@@ -488,10 +487,6 @@ td.sym a { font-weight: 700; color: var(--ink); }
 
 /* ============================================================ valuation methods */
 .calc { display: grid; gap: 18px; }
-.calc-in h3 { margin-bottom: 8px; }
-.calc-in .presets { margin-bottom: 12px; }
-.calc-in .slider { margin-bottom: 12px; }
-.calc-out { display: grid; gap: 12px; align-content: start; }
 .vscale { position: relative; height: 54px; margin: 6px 10px 0; }
 .vscale-track { position: absolute; left: 0; right: 0; top: 20px; height: 4px; border-radius: 2px; background: var(--surface-2); }
 .vscale-band { position: absolute; top: 18px; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--series-1) 25%, transparent); }
@@ -550,37 +545,47 @@ html.dash-on .signal summary { padding: 8px 0; }
 html.dash-on .signals { margin-top: 8px; }
 html.dash-on .verdict-sum { font-size: 14px; margin-top: 8px; }
 
+/* Each tab's laptop grid, one rule per tab (cards pick an area via card(title, { area })).
+   Peers and Dividends keep theirs with the rest of their styles near the end. */
 html.dash-on .dash-summary {
   grid-template-columns: minmax(0, 4.6fr) minmax(0, 4.4fr) minmax(0, 3fr);
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(240px, 1fr) auto auto;
   grid-template-areas: "verdict chart chart" "verdict stats range" "verdict stats next";
 }
 html.dash-on .dash-summary .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+html.dash-on .dash-summary .tile .s { display: none; }
 html.dash-on .dash-summary .signals { grid-template-columns: 1fr; }
 
 html.dash-on .dash-earnings {
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.25fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-areas: "story eps next" "story eps expect" "story hist trend";
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto auto;
+  grid-template-areas: "story story eps" "story story next" "hist hist hist" "filing filing filing" "expect expect trend";
+  align-items: stretch;
 }
+html.dash-on .dash-earnings .story { display: block; columns: 2; column-gap: 26px; }
+html.dash-on .dash-earnings .story-line { break-inside: avoid; margin-bottom: 10px; font-size: 14px; }
+
 html.dash-on .dash-financials {
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1.05fr);
-  grid-template-areas: "rev ni fcf margins" "bal table table table";
+  grid-template-rows: auto auto auto;
+  grid-template-areas: "rev ni fcf margins" "bal table table table" "cash cash cash cash";
+  align-content: start;
 }
 html.dash-on .dash-financials .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
 html.dash-on .dash-valuation {
   grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1.25fr) minmax(0, 1fr);
-  grid-template-areas: "calc ratios" "calc hist";
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas: "calc debt" "calc ratios" "calc hist";
 }
-html.dash-on .dash-valuation .calc { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: start; gap: 24px; }
-html.dash-on .dash-valuation .calc-in { position: sticky; top: 0; }
+html.dash-on .dash-valuation .calc { grid-template-columns: 1fr; align-items: start; gap: 14px; }
 html.dash-on .dash-valuation .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
 html.dash-on .dash-analysts {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  grid-template-areas: "rec actions" "targets actions";
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  grid-template-rows: auto auto auto;
+  grid-template-areas: "rec targets" "actions actions" "insiders insiders";
+  align-content: start;
 }
 html.dash-on .dash-news { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); grid-template-areas: "news"; }
 html.dash-on .dash-news .news-list { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 28px; }
@@ -604,10 +609,10 @@ html.dash-on .no-dash { display: none; }
 /* signal label is the hover target, not the whole row */
 .signal .lbl .has-tip { text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
 
-/* price chart: performance line lives in the controls row */
-.chart-controls .perf { margin: 0; flex: 1 1 auto; text-align: right; font-size: 13px; }
+/* price chart: range chips and toggles stay put; the summary text sits on its own line */
+.chart-controls .perf { margin: 0; flex: 1 1 100%; order: 3; text-align: left; font-size: 13px; }
 .chart-controls .toggle { flex: none; }
-@media (max-width: 639px) { .chart-controls .perf { order: 3; flex-basis: 100%; text-align: left; } }
+.chart-controls .toggles { margin-left: auto; }
 
 /* valuation: plain-English and "why they disagree" */
 .method-plain { margin: 0 0 10px; font-size: 14px; color: var(--ink); }
@@ -626,35 +631,18 @@ html.dash-on .dash table.sticky-first thead th:first-child { z-index: 2; }
 .wide-hist th, .wide-hist td { text-align: center; }
 .wide-hist td:first-child, .wide-hist th:first-child { text-align: left; color: var(--ink-2); }
 
-/* laptop: cards scroll inside a body area so sticky headers sit flush under the card title */
-html.dash-on .dash:not(.dash-flow) > .card { overflow: hidden; }
-html.dash-on .dash:not(.dash-flow) > .card > .card-body { flex: 1 1 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; overscroll-behavior: contain; }
+/* laptop: cards grow to fit (fitDash); only scroll-full cards scroll inside their body */
+html.dash-on .dash:not(.dash-flow) > .card { overflow: visible; }
+html.dash-on .dash:not(.dash-flow) > .card > .card-body { flex: 1 1 auto; min-height: 0; overflow: visible; display: flex; flex-direction: column; overscroll-behavior: contain; }
 html.dash-on .dash:not(.dash-flow) > .card > .card-body > * { flex-shrink: 0; }
 html.dash-on .dash:not(.dash-flow) > .card > .card-body > .flexcol,
 html.dash-on .dash:not(.dash-flow) > .card > .card-body > .chart.fill { flex: 1 1 0; flex-shrink: 1; min-height: 130px; }
 html.dash-on .dash-flow > .card { overflow: visible; }
 
-/* summary: give the price chart room */
-html.dash-on .dash-summary .tile .s { display: none; }
-html.dash-on .dash-summary { grid-template-rows: minmax(240px, 1fr) auto auto; }
-
-/* earnings on laptops: flowing grid, every card shows all of its content */
-html.dash-on .dash-earnings {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: auto auto auto;
-  grid-template-areas: "story eps eps" "next expect trend" "hist hist hist";
-  align-items: stretch;
-}
-html.dash-on .dash-earnings .story-line { font-size: 14.5px; }
-
-/* ============================================================ round 2b: grow-to-fit laptop grids */
-html.dash-on .dash:not(.dash-flow) > .card { overflow: visible; }
-html.dash-on .dash:not(.dash-flow) > .card > .card-body { flex: 1 1 auto; overflow: visible; }
+/* ============================================================ grow-to-fit laptop grids */
 html.dash-on .dash .chart.fill svg { position: absolute; inset: 0; }
 html.dash-on .dash > .card.scroll-full { max-height: var(--dash-h, 70vh); overflow: hidden; }
-html.dash-on .dash > .card.scroll-half { max-height: calc(var(--dash-h, 70vh) * 0.52); overflow: hidden; }
-html.dash-on .dash > .card.scroll-full > .card-body, html.dash-on .dash > .card.scroll-half > .card-body { flex: 1 1 0; min-height: 0; overflow: auto; }
-html.dash-on .dash-valuation { grid-template-rows: auto minmax(0, 1fr); }
+html.dash-on .dash > .card.scroll-full > .card-body { flex: 1 1 0; min-height: 0; overflow: auto; }
 html.dash-on .dash-flow .chart.fill { min-height: 180px; }
 html.dash-on .dash-flow > .card > .card-body { display: flex; flex-direction: column; flex: 1 1 auto; }
 html.dash-on .dash-flow > .card { display: flex; flex-direction: column; }
@@ -667,7 +655,7 @@ html.dash-on .dash-flow > .card { display: flex; flex-direction: column; }
 /* laptop grid placement only applies in the one-screen layout */
 html.dash-on .dash > .card { grid-area: var(--area, auto); }
 
-/* ============================================================ round 3 */
+/* ============================================================ earnings report card, analysts, valuation extras */
 .qid h1 .tag { margin-left: 10px; vertical-align: 5px; }
 
 /* earnings: quarter report card */
@@ -678,45 +666,26 @@ html.dash-on .dash > .card { grid-area: var(--area, auto); }
 .qchk .ic { font-weight: 700; }
 .qchk.good .ic { color: var(--good); } .qchk.bad .ic { color: var(--bad); } .qchk.note .ic { color: var(--warn); }
 
-/* earnings on laptops: story beside a compact chart */
-html.dash-on .dash-earnings {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: auto auto auto auto;
-  grid-template-areas: "story story eps" "story story next" "hist hist hist" "expect expect trend";
-}
-html.dash-on .dash-earnings .story { display: block; columns: 2; column-gap: 26px; }
-html.dash-on .dash-earnings .story-line { break-inside: avoid; margin-bottom: 10px; }
-html.dash-on .dash-earnings .story-line { font-size: 14px; }
-
-/* financials: compact charts, every table row visible */
-html.dash-on .dash-financials { grid-template-rows: auto auto; align-content: start; }
+/* financials: compact table rows */
 .card.dense table td, .card.dense table th { padding-top: 6px; padding-bottom: 6px; }
 
 /* analysts: rating changes in three columns */
-html.dash-on .dash-analysts {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
-  grid-template-rows: auto auto;
-  grid-template-areas: "rec targets" "actions actions";
-  align-content: start;
-}
-.actions-grid .list-row.extra { display: none; }
-.actions-grid.all .list-row.extra { display: flex; }
 @media (min-width: 960px) {
-  .actions-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 28px; }
+  .actions-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; }
   .actions-grid .list-row:nth-child(-n+3) { border-top: 0; }
 }
 
 /* analysts: price-target dot strip */
 .tstrip-wrap { margin-top: 4px; }
-.tstrip { position: relative; margin: 0 6px; }
+.tstrip { position: relative; margin: 18px 6px 14px; }
 .tstrip-axis { position: absolute; left: 0; right: 0; bottom: 14px; height: 2px; background: var(--border); border-radius: 2px; }
 .tstrip-dot { position: absolute; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; box-shadow: 0 0 0 2px var(--surface); cursor: default; }
 .tstrip-mark { position: absolute; top: 0; bottom: 8px; width: 2px; margin-left: -1px; }
 .tstrip-mark.today { background: var(--ink); }
-.tstrip-mark.mean { background: var(--series-2); }
+.tstrip-mark.mean { background: var(--series-muted); }
+.tstrip-mark.median { background: var(--series-2); }
 .tstrip-mark span { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 11.5px; white-space: nowrap; color: var(--ink-2); }
-.tstrip-mark.mean span { bottom: auto; top: -16px; }
-.tstrip { margin-top: 18px; margin-bottom: 14px; }
+.tstrip-mark.median span { bottom: auto; top: -16px; font-weight: 600; color: var(--ink); }
 
 /* valuation: debt explainer + peers table */
 .spread.debt { margin-top: 10px; }
@@ -727,17 +696,11 @@ html.dash-on .dash-analysts {
 .peers-table th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; }
 .peers-table tr.self td { background: var(--surface-2); }
 .peers-table tr.unused td { color: var(--muted); }
-
-html.dash-on .dash-valuation {
-  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0, 1fr);
-  grid-template-areas: "calc debt" "calc ratios" "calc hist";
-}
 .debt-why { margin-top: 0; }
 .peers-table td, .peers-table tr:last-child td { font-weight: 400; }
 .peers-table tr.self td { font-weight: 600; }
 
-/* ============================================================ round 4 */
+/* ============================================================ thumbs, valuation headline, analyst ratings, press release */
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* rule-of-thumb badge next to a jargon term: thumbs up / dash / thumbs down */
@@ -773,7 +736,6 @@ html.dash-on .dash-valuation {
 .tune-grid { display: grid; gap: 12px 20px; margin-top: 12px; }
 @media (min-width: 640px) { .calc-top { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.6fr); align-items: start; } .tune-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 960px) { .tune-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
-html.dash-on .dash-valuation .calc { grid-template-columns: 1fr; gap: 14px; }
 .calc .fv { padding: 12px; }
 .calc .fv .big { font-size: 34px; }
 .peers-table th.used, .peers-table td.used { font-weight: 650; }
@@ -782,10 +744,6 @@ html.dash-on .dash-valuation .calc { grid-template-columns: 1fr; gap: 14px; }
 .tiles.four, .cols .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (min-width: 640px) { .tiles.four, .cols .tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .tiles.four .v { font-size: 16px; }
-.tstrip-mark.mean { background: var(--series-muted); }
-.tstrip-mark.median { background: var(--series-2); }
-.tstrip-mark.mean span { top: auto; bottom: -18px; }
-.tstrip-mark.median span { bottom: auto; top: -16px; font-weight: 600; color: var(--ink); }
 .segbar.mini { height: 12px; margin: 0; }
 .segbar.mini > div { padding: 0; border-radius: 3px; }
 .rec-score { margin-top: 14px; }
@@ -805,13 +763,7 @@ html.dash-on .dash-valuation .calc { grid-template-columns: 1fr; gap: 14px; }
 .rchip { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: var(--ink); cursor: default; }
 .rdot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .actions-grid .list-row.arow { border: 1px solid var(--border); border-left: 5px solid var(--series-muted); border-radius: 10px; padding: 9px 11px; margin-bottom: 8px; background: var(--surface); }
-.actions-grid .list-row.arow.a-up { border-left: 4px solid var(--good); }
-.actions-grid .list-row.arow.a-down { border-left: 4px solid var(--bad); }
-@media (min-width: 960px) {
-  .actions-grid { column-gap: 10px; }
-  .actions-grid .list-row.arow { margin-bottom: 0; }
-  .actions-grid { row-gap: 8px; }
-}
+@media (min-width: 960px) { .actions-grid .list-row.arow { margin-bottom: 0; } }
 
 /* earnings: one-off quarters + press release */
 .oneoffs { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
@@ -829,16 +781,10 @@ html.dash-on .dash-valuation .calc { grid-template-columns: 1fr; gap: 14px; }
 .filing { display: grid; gap: 14px; margin-bottom: 10px; }
 @media (min-width: 960px) { .filing { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); } }
 .filing-adj .big { font-size: 28px; font-weight: 700; }
-.quote-list { margin: 4px 0 0; padding-left: 18px; font-size: 14px; color: var(--ink-2); }
-.quote-list li { margin-bottom: 6px; }
-html.dash-on .dash-earnings {
-  grid-template-areas: "story story eps" "story story next" "hist hist hist" "filing filing filing" "expect expect trend";
-  grid-template-rows: auto auto auto auto auto;
-}
 html.dash-on .dash-valuation .methods { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; align-items: start; }
 html.dash-on .dash-valuation .method[open] { grid-column: 1 / -1; }
 
-/* round 5: press release in plain English, analyst net score */
+/* press release in plain English, analyst net score */
 .pr-list { display: grid; gap: 10px; margin-top: 6px; }
 .pr-tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; vertical-align: 1px; background: var(--surface-2); color: var(--ink-2); }
 .pr-tag.good { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--ink); }
@@ -853,11 +799,11 @@ html.dash-on .dash-valuation .method[open] { grid-column: 1 / -1; }
 .rec-math { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 12.5px; color: var(--ink-2); }
 .rec-term { display: inline-flex; align-items: center; gap: 5px; }
 
-/* ============================================================ round 6 */
+/* ============================================================ since you last looked, cash, insiders, Edit list */
 /* since you last looked */
 .changes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 10px 0 4px; padding: 9px 12px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 9%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
 .changes-title { font-size: 13px; font-weight: 650; }
-.changes-list { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 auto; }
+.changes-list { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 380px; }
 .chg { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 550; text-decoration: none; border: 1px solid var(--border); }
 .chg:hover { border-color: var(--accent); }
 .chg .ic { font-size: 10px; font-weight: 800; }
@@ -884,26 +830,16 @@ html.dash-on .dash-valuation .method[open] { grid-column: 1 / -1; }
 .ins { display: grid; gap: 14px; }
 .ins .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 8px; }
 .ins-story p { margin: 0 0 6px; }
-.ins-list .list-row.extra { display: none; }
-.ins-list.all .list-row.extra { display: flex; }
 @media (min-width: 960px) { .ins { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 24px; } }
 
-/* laptop placement of the new cards */
-html.dash-on .dash-financials { grid-template-areas: "rev ni fcf margins" "bal table table table" "cash cash cash cash"; grid-template-rows: auto auto auto; }
-html.dash-on .dash-financials .cash .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-html.dash-on .dash-analysts { grid-template-areas: "rec targets" "actions actions" "insiders insiders"; grid-template-rows: auto auto auto; }
-.changes-list { flex: 1 1 380px; }
 /* laptop: the cash card's story, bars and table side by side so it stays short */
-html.dash-on .dash-financials .cash { grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1.15fr); gap: 24px; }
+html.dash-on .dash-financials .cash .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html.dash-on .dash-financials .cash { grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 1.45fr); gap: 24px; }
 html.dash-on .dash-financials .cash-table { grid-column: auto; }
 html.dash-on .dash-financials .cash-table td, html.dash-on .dash-financials .cash-table th { padding-top: 6px; padding-bottom: 6px; }
 html.dash-on .dash-financials .cash-table { overflow-x: auto; }
-html.dash-on .dash-financials .cash { grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 1.45fr); }
 .cash-table td:first-child { white-space: normal; min-width: 110px; }
 
-/* price chart: range chips and toggles stay put; the summary text sits on its own line */
-.chart-controls .toggles { margin-left: auto; }
-.chart-controls .perf { flex: 1 1 100%; order: 3; text-align: left; margin: 0; }
 /* watchlist reorder */
 .home-bar { display: flex; align-items: center; gap: 8px; }
 .home-bar .chips { flex: 1 1 auto; min-width: 0; }
@@ -990,8 +926,6 @@ html.dash-on .dash-peers .psum { grid-template-columns: 1fr; }
 html.dash-on .dash-peers .prow { padding: 5px 0; } html.dash-on .dash-peers .pgroup h3 { margin-top: 10px; }
 
 /* dividends tab */
-.pay-list .list-row.extra { display: none; }
-.pay-list.all .list-row.extra { display: flex; }
 .pay-list .list-row { gap: 12px; align-items: baseline; }
 .pay-amt { font-weight: 600; min-width: 52px; text-align: right; }
 .div-story p { margin: 10px 0 0; }

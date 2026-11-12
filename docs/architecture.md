@@ -88,7 +88,7 @@ Hash router: `#/`, `#/t/SYM/<tab>`, `#/learn`, `#/settings`. Equity tabs: Summar
 
 `app.js` toggles `html.dash-on` at `(min-width:1100px) and (min-height:600px)`. Each tab builds cards inside `grid(name, flow)` (`.cols.dash.dash-<name>`), and `card(title, { area })` sets a `--area` CSS variable that becomes `grid-area` only under `html.dash-on`. Setting `grid-area` directly breaks the phone layout. Per-tab `grid-template-areas` live in `styles.css`.
 
-`fitDash()` gives each non-flow `.dash` a **min-height** of the window (and `--dash-h`), so cards grow instead of scrolling internally. The user dislikes "windowed scrolling". Only long lists opt in, with `scroll-full` / `scroll-half`; others use a first batch plus "Show all".
+`fitDash()` gives each non-flow `.dash` a **min-height** of the window (and `--dash-h`), so cards grow instead of scrolling internally. The user dislikes "windowed scrolling". Only long lists opt in, with `scroll-full`; others use a first batch plus "Show all" (`showMore()` in `app.js`).
 
 Card content sits in `.card-body`, so sticky table headers stay flush. Earnings and Peers use flowing grids. Earnings and Financials charts use fixed heights (the user found filled charts too big). `fill: true` charts take their container's height, with the SVG absolutely positioned. `dash-hide` cards are hidden on laptop. Valuation keeps the Bear/Base/Bull buttons on top and the sliders collapsed at the bottom.
 
