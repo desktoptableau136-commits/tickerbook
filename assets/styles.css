@@ -660,6 +660,9 @@ html.dash-on .dash:not(.dash-flow) > .card > .card-body > * { flex-shrink: 0; }
 html.dash-on .dash:not(.dash-flow) > .card > .card-body > .flexcol,
 html.dash-on .dash:not(.dash-flow) > .card > .card-body > .chart.fill { flex: 1 1 0; flex-shrink: 1; min-height: 130px; }
 html.dash-on .dash-flow > .card { overflow: visible; }
+/* Summary's checklist card takes the height the other cards give it and scrolls inside, so opening
+   a check doesn't stretch the chart beside it (height 0 keeps it out of the row sizing). */
+html.dash-on .dash-summary > .card.verdict-card { height: 0; min-height: 100%; overflow: auto; }
 
 /* ============================================================ grow-to-fit laptop grids */
 html.dash-on .dash .chart.fill svg { position: absolute; inset: 0; }

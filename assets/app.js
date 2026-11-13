@@ -598,7 +598,7 @@ function verdictCard(d) {
   // Checks grouped by part; each heading shows that part's share of the points.
   const groups = ov.parts?.length ? ov.parts.flatMap((p) => [partHead(p), ...p.checks.map(row)]) : sig.map(row);
 
-  return card(null, { area: "verdict", class: "span" },
+  return card(null, { area: "verdict", class: "span verdict-card" },
     h("div", { class: "verdict" }, ring,
       h("div", {},
         h("div", { class: "muted small" }, "The quick read"),
