@@ -153,7 +153,7 @@ const weigh = (out, kind) => out.map((s) => {
   return { ...s, weight: SCORE_WEIGHTS[kind][s.key] ?? 1, part: p?.id, partLabel: p?.label, partAbout: p?.about };
 });
 // Bump when the formula changes, so "since your last visit" doesn't report a formula change as news.
-export const SCORE_VERSION = 3;
+export const SCORE_VERSION = 4;
 
 export function equitySignals(d) {
   const v = d.valuation || {}, f = d.fundamentals || {}, q = d.quote || {}, a = d.analysts || {};
@@ -169,8 +169,7 @@ export function equitySignals(d) {
       "No meaningful forward P/E (expected earnings are negative or missing), so we can't judge price against profit.", "forwardPE"));
   } else {
     const st = !isNum(peg) ? (fpe < 18 ? "good" : fpe < 30 ? "ok" : "bad") : peg < 1.2 ? "good" : peg < 2 ? "ok" : "bad";
-    const word = { good: "Reasonable", ok: "Fair", bad: "Pricey" }[st];
-    const gTxt = isNum(g) && !wild ? ` with about ${pct(g, { digits: 0 })} expected yearly earnings growth` : "";
+    const gTxt = isNum(g) && g > 0 && !wild ? ` with about ${pct(g, { digits: 0 })} expected yearly earnings growth` : "";
     const meaning = wild ? {
       good: "That's low for any company.", ok: "That's above the long-run market average of about 16–18.", bad: "That's expensive: the price already assumes years of very fast growth.",
     }[st] + ` Analysts expect about ${pct(g, { digits: 0 })} a year earnings growth, which usually means growth from a tiny starting point. That can't last, so the price isn't judged against it (the PEG ratio would make almost any price look cheap); this uses the P/E alone (under 18 reasonable, over 30 pricey).` : {
@@ -179,17 +178,37 @@ export function equitySignals(d) {
       bad: "The price already assumes a lot of growth. Any disappointment could hit the stock hard.",
     }[st];
     const low = fpe < 6 ? " A forward P/E this low is unusual; it often means the market doubts the estimates." : "";
-    const lev = leverage(d);
+    const lev = leverage(d), heavy = !!(lev && lev.ratio > 3.5);
     const vp = isNum(peg) ? ramp(peg, 2.5, 0.8) : ramp(fpe, 35, 14);
     const vRule = isNum(peg) ? "PEG 2.5 or higher earns 0, 0.8 or lower earns 1" : "forward P/E 35 or higher earns 0, 14 or lower earns 1";
-    if (st === "good" && lev && lev.ratio > 3.5) {
-      out.push(scale(sig("valuation", "Valuation", "ok", "Cheap, but risky", `${times(fpe)} fwd P/E${isNum(peg) ? ` · PEG ${num(peg, 1)}` : ""}`,
-        `Trading at only ${times(fpe)} next year's expected earnings${gTxt}, which looks cheap. But the company carries heavy debt (${num(lev.ratio, 1)}× EBITDA), so its earnings are riskier than the P/E suggests. Low prices on heavily indebted companies are often the market pricing in that risk.`, "peg"),
-        Math.min(vp, 0.5), `${vRule}; capped at ½ while debt is over 3.5× EBITDA`));
-    } else {
-      out.push(scale(sig("valuation", "Valuation", st, word, `${times(fpe)} fwd P/E${isNum(peg) ? ` · PEG ${num(peg, 1)}` : ""}`,
-        `Trading at ${times(fpe)} next year's expected earnings${gTxt}. ${meaning}${low}`, "peg"), vp, vRule));
+    let text = heavy && st === "good"
+      ? `Trading at only ${times(fpe)} next year's expected earnings${gTxt}, which looks cheap. But the company carries heavy debt (${num(lev.ratio, 1)}× EBITDA), so its earnings are riskier than the P/E suggests. Low prices on heavily indebted companies are often the market pricing in that risk.`
+      : `Trading at ${times(fpe)} next year's expected earnings${gTxt}. ${meaning}${low}`;
+    // Second reading: today's price vs the fair-value methods' average (see fairValueGap).
+    const fv = fairValueGap(d);
+    let pts = vp, rule = vRule, status = st, mixed = false, fvTxt = "";
+    if (fv) {
+      const gp = ramp(fv.gap, -0.3, 0.3), wide = fv.spread >= 1.6;
+      const gst = fv.gap >= 0.15 ? "good" : fv.gap > -0.15 ? "ok" : "bad";
+      pts = wide ? (2 * vp + gp) / 3 : (vp + gp) / 2;
+      status = pts >= 0.65 ? "good" : pts >= 0.4 ? "ok" : "bad";
+      mixed = (st === "good" && gst === "bad") || (st === "bad" && gst === "good");
+      const where = Math.abs(fv.gap) < 0.005 ? "right at that" : `${pct(Math.abs(fv.gap), { digits: 0 })} ${fv.gap >= 0 ? "below" : "above"} that`;
+      text += ` A second reading: ${fv.n} of the fair-value methods on the Valuation tab (default assumptions, leaving out analyst targets, which the mood checks already count) average ${price(fv.avg)}, so today's ${price(q.price)} is ${where}.` +
+        (wide ? ` They range from ${price(fv.low)} to ${price(fv.high)}, so they count for a third of this check instead of half.` : "") +
+        (mixed && st === "bad" ? " The two readings disagree: the price looks high for next year's growth estimate, but on cash flow, peers and its own history the stock looks cheaper. It's worth checking which fits the company better."
+          : mixed ? " The two readings disagree: the price looks fine for next year's growth estimate, but the other methods (cash flow, peers, its own history) value it below today's price. A high growth estimate can make the PEG look better than the rest."
+          : gst === st ? " Both readings point the same way." : "");
+      fvTxt = ` · ${Math.abs(fv.gap) < 0.005 ? "at" : `${pct(Math.abs(fv.gap), { digits: 0 })} ${fv.gap >= 0 ? "under" : "over"}`} fair-value avg`;
+      rule = `two readings averaged: price vs growth (${vRule}; here ${vp.toFixed(2)}) and price vs the fair-value average (30% or more above it earns 0, 30% or more below it earns 1; here ${gp.toFixed(2)})${wide ? ", the second counting a third because the methods disagree a lot" : ""}`;
     }
+    let word = mixed ? "Mixed signals" : { good: "Reasonable", ok: "Fair", bad: "Pricey" }[status];
+    if (heavy) {
+      if (status === "good") { status = "ok"; word = "Cheap, but risky"; }
+      pts = Math.min(pts, 0.5); rule += "; capped at ½ while debt is over 3.5× EBITDA";
+    }
+    if (mixed && status !== "ok") status = "ok";
+    out.push(scale(sig("valuation", "Valuation", status, word, `${times(fpe)} fwd P/E${isNum(peg) ? ` · PEG ${num(peg, 1)}` : ""}${fvTxt}`, text, "priceCheck"), pts, rule));
   }
 
   // 2. Growth
@@ -869,6 +888,17 @@ export function pastPEs(d) {
   return out;
 }
 
+// Today's price vs the average of the fair-value methods at their default assumptions. Analyst
+// targets are left out (the analyst-view check already counts them) and so is the no-growth floor.
+// Needs 2+ methods. gap > 0 means the price is below the average.
+export function fairValueGap(d) {
+  const P = d.quote?.price;
+  if (!isNum(P) || P <= 0) return null;
+  const ms = valuationMethods(d, valuationInputs(d));
+  const b = blend(ms, Object.fromEntries(ms.map((x) => [x.id, x.include && isNum(x.value) && x.value > 0 && x.id !== "analyst"])));
+  return b && b.n >= 2 ? { ...b, gap: b.avg / P - 1 } : null;
+}
+
 export function blend(methods, included) {
   const vals = methods.filter((x) => included[x.id] && isNum(x.value)).map((x) => x.value);
   if (!vals.length) return null;
@@ -1037,6 +1067,11 @@ export function judge(key, d) {
       if (!isNum(v.forwardPE) || v.forwardPE <= 0 || !isNum(v.trailingPE) || v.trailingPE <= 0) return null;
       const r = v.forwardPE / v.trailingPE;
       return { tone: r < 0.9 ? "good" : r <= 1.05 ? "ok" : "bad", value: `${times(v.forwardPE)} vs ${times(v.trailingPE)} trailing`, text: r < 0.9 ? "Lower than trailing: profits expected to grow" : r <= 1.05 ? "About the same as trailing" : "Higher than trailing: profits expected to shrink" };
+    }
+    case "priceCheck": {
+      if (d.type === "ETF") return null;
+      const s = equitySignals(d).find((x) => x.key === "valuation");
+      return s && s.status !== "na" ? { tone: s.status, value: s.word, text: s.value } : null;
     }
     case "peg": return isNum(v.peg) && v.peg > 0 && !(expectedGrowth(d) > WILD_GROWTH) ? band(v.peg, 2, 1, (x) => num(x, 2), { good: "Under 1: cheap for its growth", ok: "1–2: fair", bad: "Over 2: paying up" }, false) : null;
     case "revenueGrowth": return band(f.revenueGrowth, 0, 0.05, p1, { good: "Growing at a solid pace", ok: "Barely growing", bad: "Shrinking" });
@@ -1699,11 +1734,9 @@ export function walkSteps(d, { signals = [], bench } = {}) {
     tone: ds?.verdict?.tone, word: ds?.verdict?.label });
 
   if (!isFund) {
-    const methods = valuationMethods(d, valuationInputs(d));
-    const b = blend(methods, Object.fromEntries(methods.map((x) => [x.id, x.include && isNum(x.value)]))), px = d.quote?.price, conf = confidence(b);
     add({ id: "value", tab: "valuation", area: "ratios", title: "Is the price reasonable?", sigKey: "valuation",
       what: "Everything so far was about the business. Valuation asks what you're paying for it. P/E is the price ÷ a year's earnings per share: roughly how many years of today's profit you pay for. A high P/E can be fine if profits grow fast, which is what PEG adjusts for.",
-      says: [txt("valuation"), b && isNum(px) ? `With the default assumptions, ${b.n} ways of estimating a fair value average **${price(b.avg)}** (from ${price(b.low)} to ${price(b.high)}), ${pct(Math.abs(b.avg / px - 1), { digits: 0 })} ${b.avg >= px ? "above" : "below"} today's ${price(px)}.${conf ? ` ${conf.label}${conf.tone === "bad" ? ", so take the average with a grain of salt" : ""}.` : ""} The Valuation tab lets you change the assumptions.` : null] });
+      says: [txt("valuation"), "The Valuation tab shows each method's math and lets you change the assumptions. Its average also includes analyst targets, so it can differ from the one above."] });
     add({ id: "analysts", tab: "analysts", area: "targets", title: "What do the professionals think?", sigKey: "analysts",
       what: "A price target is where an analyst thinks the stock will trade in 12 months. Targets tend to follow the price, so use them as a mood check rather than a forecast.",
       says: [txt("analysts")] });

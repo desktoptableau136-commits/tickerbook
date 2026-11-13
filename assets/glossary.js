@@ -30,6 +30,13 @@ export const GLOSSARY = {
     why: "A high P/E isn't bad if the company is growing fast. PEG puts valuation and growth on the same scale.",
     rule: "Under 1 = cheap for its growth · 1–2 = fair · over 2 = you're paying up. Growth estimates can be wrong, so treat it as a rough guide. With expected growth over 100% a year (usually growth from a tiny base) it's skipped, and the P/E is judged alone.",
   },
+  priceCheck: {
+    term: "Valuation check",
+    short: "Is it cheap? Two readings of the price, averaged.",
+    what: "First, price vs growth: the PEG ratio (forward P/E ÷ expected growth), or the forward P/E alone when growth is too fast to trust. Second, today's price vs the average of the Valuation tab's fair-value methods at their default assumptions, leaving out analyst targets because the analyst-view check already counts them.",
+    why: "PEG only looks at next year's growth estimate. The fair-value methods also look at cash flow, similar companies and the company's own history. When the two disagree, it's a sign to look closer rather than trust either one.",
+    rule: "Price vs growth: PEG under 1.2 reasonable, 1.2–2 fair, over 2 pricey. Price vs fair value: 15% or more below the average is cheap, within 15% fair, 15% or more above pricey. Each earns 0 to 1 and they're averaged; when the methods disagree a lot (highest ÷ lowest 1.6 or more) the fair-value side counts a third. Together, 0.65 or more reads reasonable, 0.4 to 0.65 fair, under 0.4 pricey, and opposite readings say \"Mixed signals\". Debt over 3.5× EBITDA caps it at fair.",
+  },
   eps: {
     term: "EPS (earnings per share)",
     short: "Profit divided by the number of shares.",

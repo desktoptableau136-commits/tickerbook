@@ -1791,7 +1791,7 @@ function openTerm(key) {
     h("p", { style: "font-size:16px;font-weight:550" }, g.short),
     h("p", { class: "ink2" }, g.what),
     h("h4", {}, "Why it matters"), h("p", { class: "ink2" }, g.why),
-    ...(g.rule ? [h("h4", {}, "Rule of thumb"), h("p", { class: "ink2" }, g.rule)] : []), judgeBox(key),
+    ...(g.rule ? [h("h4", {}, "Rule of thumb"), h("p", { class: "ink2" }, g.rule)] : []), judgeBox(key) || "",
     h("a", { class: "small", href: `#/learn/g-${key}`, on: { click: closeSheet } }, "See all terms ›")));
 }
 
