@@ -105,7 +105,7 @@ export const GLOSSARY = {
     short: "Profit from the core business per dollar of sales.",
     what: "Operating income ÷ revenue. Takes out direct costs plus running costs like salaries, R&D and marketing, but not interest or taxes.",
     why: "Shows how efficiently the company turns sales into profit. Rising margins = the business is getting more efficient as it grows.",
-    rule: "Over 20% is strong · 10–20% is decent · under 10% is thin (normal for retailers).",
+    rule: "Over 20% is strong · 10–20% is decent · under 10% is thin (normal for retailers). Because margins depend so much on the kind of business, half of the score's profitability check compares the margin with similar companies' middle margin.",
   },
   netMargin: {
     term: "Net margin",

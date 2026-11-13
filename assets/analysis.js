@@ -136,7 +136,7 @@ export const SCORE_WEIGHTS = {
 };
 const weigh = (out, kind) => out.map((s) => ({ ...s, weight: SCORE_WEIGHTS[kind][s.key] ?? 1 }));
 // Bump when the formula changes, so "since your last visit" doesn't report a formula change as news.
-export const SCORE_VERSION = 2;
+export const SCORE_VERSION = 3;
 
 export function equitySignals(d) {
   const v = d.valuation || {}, f = d.fundamentals || {}, q = d.quote || {}, a = d.analysts || {};
@@ -193,13 +193,22 @@ export function equitySignals(d) {
   if (isNum(om)) {
     const st = om >= 0.2 ? "good" : om >= 0.1 ? "ok" : "bad";
     const fcf = isNum(f.freeCashflow) ? ` It produced ${money(f.freeCashflow)} of free cash flow over the last year.` : "";
-    out.push(sig("profit", "Profitability", st, { good: "High margins", ok: "Decent", bad: "Thin margins" }[st], `${pct(om)} op. margin`,
+    // Margins mostly reflect the kind of business, so half the score compares with the peers'
+    // middle margin (needs 3+ peers with a positive median). The pill stays on the fixed scale.
+    const pm = (d.peers?.list || []).filter((p) => p.symbol !== d.symbol && isNum(p.operatingMargin)).map((p) => p.operatingMargin);
+    const peerMed = pm.length >= 3 ? median(pm) : null;
+    const rel = isNum(peerMed) && peerMed > 0 ? om / peerMed : null;
+    const peerTxt = isNum(rel) ? ` The middle margin among ${pm.length} similar companies is ${pct(peerMed)}, so this is ${rel >= 1.15 ? "above" : rel > 0.85 ? "about in line with" : "below"} its industry.` : "";
+    out.push(sig("profit", "Profitability", st, { good: "High margins", ok: "Decent", bad: "Thin margins" }[st], `${pct(om)} op. margin${isNum(rel) ? ` · peers ${pct(peerMed)}` : ""}`,
       `Keeps about ${Math.round(om * 100)}¢ of operating profit from every $1 of sales.${fcf} ${{
         good: "Strong margins mean pricing power and cash to reinvest.",
         ok: "Healthy, though not exceptional.",
         bad: "Thin margins leave little cushion if costs rise or sales slow.",
-      }[st]}`, "operatingMargin"));
-    scale(out.at(-1), ramp(om, 0.05, 0.25), "5% or less earns 0, 25% or more earns 1");
+      }[st]}${peerTxt}`, "operatingMargin"));
+    const absPts = ramp(om, 0.05, 0.25);
+    scale(out.at(-1), isNum(rel) ? (absPts + ramp(rel, 0.5, 1.5)) / 2 : absPts, isNum(rel)
+      ? `half on a fixed scale (5% or less earns 0, 25% or more earns 1; here ${absPts.toFixed(2)}), half vs the peers' middle margin (half of it earns 0, 1.5× it earns 1; here ${ramp(rel, 0.5, 1.5).toFixed(2)} at ${num(rel, 2)}×)`
+      : "5% or less earns 0, 25% or more earns 1 (too few peers to compare with)");
   }
 
   // 4. Balance sheet
