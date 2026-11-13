@@ -389,7 +389,6 @@ function tickerCard(d, tag) {
       logo(d.symbol, d.name),
       h("div", { class: "grow" },
         h("div", { class: "tcard-top" }, h("span", { class: "tcard-sym" }, d.symbol), tagIcon(tag),
-          drop ? h("span", { class: "drop-badge", "data-tip": `Down ${A.pct(-drop.change, { digits: 0 })} in a month. The score lags news like this; open the ticker for why.`, "data-tip-title": "Big drop" }, `⚠ Down ${A.pct(-drop.change, { digits: 0 })}`) : null,
           news.length ? h("span", { class: "new-badge", "data-tip": news.map((x) => x.text).join(" · "), "data-tip-title": "Since you last looked" }, `${news.length} new`) : null),
         h("div", { class: "tcard-name" }, d.name)),
       h("span", { class: "has-tip", "data-tip": `${ov.lean}${ov.score != null ? `: ${ov.good} of ${ov.total} checks positive${ov.bad ? `, ${ov.bad} negative` : ""}` : ""}. ${ov.parts?.length ? ` ${partsLine(ov)}.` : ""} A weighted checklist out of 100, not a prediction.${drop ? " It lags news, and the price just dropped sharply." : ""} Open the ticker to see each check.`, "data-tip-title": ov.score != null ? `Score ${ov.score}` : "No score yet" },
@@ -399,7 +398,11 @@ function tickerCard(d, tag) {
         h("div", { class: "tcard-price tnum" }, A.price(d.quote.price)),
         h("div", { class: `tcard-chg tnum ${signClass(d.quote.changePct)}` }, `${arrow(d.quote.changePct)} ${A.pct(d.quote.changePct, { digits: 2, sign: true })} today`)),
       h("div", { html: sparkline(closes, { width: 104, height: 36 }) })),
-    h("div", { class: "tcard-foot" }, pill(ov.tone, ov.short), foot));
+    // the drop warning sits by the score it qualifies, so it doesn't crowd the symbol line
+    h("div", { class: "tcard-foot" }, h("span", { class: "foot-left" }, pill(ov.tone, ov.short),
+      drop ? h("span", { class: "drop-badge", role: "img", "aria-label": `Big drop: down ${A.pct(-drop.change, { digits: 0 })} in a month`,
+        "data-tip": `Down ${A.pct(-drop.change, { digits: 0 })} in a month. The score lags news like this; open the ticker for why.`, "data-tip-title": "Big drop" },
+        h("span", { "aria-hidden": "true" }, `⚠ −${A.pct(-drop.change, { digits: 0 })}`)) : null), foot));
 }
 
 // ================================================================ ideas

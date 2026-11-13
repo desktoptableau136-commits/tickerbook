@@ -1045,3 +1045,5 @@ html.dash-on .dash-dividends .tiles, html.dash-on .dash-divfund .tiles { grid-te
 .tagic-svg { display: inline-flex; }
 .qid h1 .tagic { width: 26px; height: 26px; }
 .chip .tagic-svg { margin-right: 5px; vertical-align: -2px; }
+.tcard-foot .foot-left { display: inline-flex; align-items: center; gap: 6px; }
+.tcard-foot .drop-badge { cursor: default; }
