@@ -378,7 +378,7 @@ function renderTicker(sym, tab) {
 
   const head = h("div", { class: "qtop" },
     h("div", { class: "qid" },
-      h("a", { class: "back", href: "#/" }, "‹ Watchlist"),
+      h("div", { class: "qnav" }, h("a", { class: "back", href: "#/" }, "‹ Watchlist"), tickerPager(sym, tab)),
       h("h1", {}, d.symbol, tag ? h("span", { class: `tag ${tag}` }, tag) : null),
       h("div", { class: "qname" },
         about ? h("span", { class: "has-tip", "data-tip": about.length > 700 ? about.slice(0, 700).replace(/\s\S*$/, "") + "…" : about, "data-tip-title": d.name }, d.name) : d.name,
@@ -399,6 +399,22 @@ function renderTicker(sym, tab) {
   view.append(head, archiveNote(d, sym), newListingNote(d), dropNote(d), changesBanner(d) || "", tabBar, body);
   TAB_FN[tab](d, body);
   body.append(h("p", { class: "disclaimer" }, "For learning and research only. Not financial advice."));
+}
+
+// Previous / next ticker, in the home page's order and filter, staying on the same tab. Wraps
+// around. An archived ticker steps through the archived ones.
+function tickerPager(sym, tab) {
+  const every = tickers(), me = every.find((t) => t.symbol === sym);
+  const active = every.filter((t) => t.tag !== "archived");
+  const filtered = state.filter === "all" ? active : active.filter((t) => t.tag === state.filter);
+  const list = me?.tag === "archived" ? every.filter((t) => t.tag === "archived") : filtered.some((t) => t.symbol === sym) ? filtered : active;
+  const i = list.findIndex((t) => t.symbol === sym);
+  if (i < 0 || list.length < 2) return null;
+  const which = me?.tag === "archived" ? "archived tickers" : list === filtered && state.filter !== "all" ? `${state.filter} tickers (the home page filter)` : "watchlist";
+  const at = (k) => list[(i + k + list.length) % list.length].symbol;
+  const link = (k, text) => h("a", { class: "pager-btn", href: `#/t/${at(k)}/${tab}`, "aria-label": `${k < 0 ? "Previous" : "Next"} ticker: ${at(k)}`, "data-tip": `${k < 0 ? "Previous" : "Next"} in your ${which}, on the same tab.`, "data-tip-title": at(k) }, text);
+  return h("nav", { class: "pager", "aria-label": "Other tickers" },
+    link(-1, `‹ ${at(-1)}`), h("span", { class: "muted tnum" }, `${i + 1} of ${list.length}`), link(1, `${at(1)} ›`));
 }
 
 // Sharp drop: the checks lag news, so say so where the score is shown (icon + word with the red tint).

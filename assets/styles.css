@@ -237,6 +237,12 @@ td.sym a { font-weight: 700; color: var(--ink); }
 /* ------------------------------------------------------------ ticker page */
 .back { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); font-size: 14px; font-weight: 550; margin-bottom: 8px; }
 .qname { color: var(--ink-2); font-size: 14px; margin-top: 2px; }
+.qnav { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; margin-bottom: 8px; }
+.qnav .back { margin-bottom: 0; }
+.pager { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.pager-btn { display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); font-weight: 600; text-decoration: none; }
+.pager-btn:hover { text-decoration: none; color: var(--ink); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.pager .muted { padding: 0 4px; font-size: 12px; }
 .qprice { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 12px 0 4px; }
 .qprice .big { font-size: 44px; font-weight: 650; letter-spacing: -0.03em; line-height: 1; }
 .qprice .chg { font-size: 16px; font-weight: 600; }
@@ -536,7 +542,7 @@ html.dash-on main { padding-bottom: 16px; }
 html.dash-on .disclaimer { display: none; }
 html.dash-on .dash > .card.dash-hide, html.dash-on .dash-hide { display: none; }
 html.dash-on .qtop { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-right: 48px; }
-html.dash-on .qid .back { margin-bottom: 2px; }
+html.dash-on .qid .qnav { margin-bottom: 2px; }
 html.dash-on .qtop h1 { font-size: 26px; }
 html.dash-on .qquote { text-align: right; }
 html.dash-on .qprice { margin: 0; justify-content: flex-end; }

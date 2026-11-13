@@ -74,6 +74,8 @@ Hash router: `#/`, `#/t/SYM/<tab>`, `#/learn`, `#/settings`. Equity tabs: Summar
 
 **Home cards.** Each card shows the checklist score as a small `scoreRing()` (the same ring as Summary's, top right) and `overall().short` (Strong / Mixed / Caution) in the footer, so the earnings date stays on one line. Summary keeps the full `lean` wording.
 
+**Previous / next ticker.** `tickerPager()` sits beside "‹ Watchlist" on the ticker page: home order, the home tag filter if the ticker is in it (else every active ticker; archived tickers step through the archived ones), wraps around, and keeps the current tab.
+
 **Rule-of-thumb badges.** `renderTicker` sets module-level `CUR` (cleared in `route()`); `termBtn(key)` appends a thumb from `A.judge(key, CUR)`. The popover and glossary sheet show the same verdict (`judgeBox`).
 
 **Hover popovers.** On `(hover: hover) and (pointer: fine)`, elements with `data-term` or `data-tip`/`data-tip-title` show a popover (delegated listeners near the end of `app.js`). Click still opens the bottom sheet.
