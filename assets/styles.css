@@ -447,6 +447,15 @@ td.sym a { font-weight: 700; color: var(--ink); }
 .gl-item[open] summary::after { content: "−"; }
 .gl-item .body { padding-bottom: 14px; color: var(--ink-2); font-size: 14.5px; }
 .gl-item .body p { margin-bottom: 8px; }
+.wl-ex { margin: 12px 0 8px; }
+.wl-ex h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.wl-ex ul { list-style: none; margin: 0; padding: 0; }
+.wl-ex li { display: grid; grid-template-columns: 22px 3.4em 1fr; gap: 6px; align-items: baseline; padding: 5px 6px; border-radius: 8px; font-size: 13.5px; color: var(--ink); }
+.wl-ex li.cur { background: var(--surface-2); }
+.wl-ex li .thumb { margin: 0; align-self: center; }
+.wl-ex li a { font-weight: 650; }
+.wl-ex .wl-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); justify-self: center; align-self: center; }
+.wl-ex p { margin: 6px 0 0; }
 .gl-short { display: block; font-weight: 400; color: var(--muted); font-size: 13.5px; }
 
 /* ------------------------------------------------------------ larger screens */

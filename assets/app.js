@@ -1698,9 +1698,12 @@ function renderLearn(anchor) {
     list.replaceChildren(...Object.entries(GLOSSARY)
       .filter(([, g]) => !q || `${g.term} ${g.short} ${g.what}`.toLowerCase().includes(q))
       .sort((a, b) => a[1].term.localeCompare(b[1].term))
-      .map(([k, g]) => h("details", { class: "gl-item", id: `g-${k}` },
-        h("summary", {}, h("span", {}, g.term, h("span", { class: "gl-short" }, g.short))),
-        h("div", { class: "body" }, h("p", {}, g.what), h("p", {}, h("b", {}, "Why it matters: "), g.why), g.rule ? h("p", {}, h("b", {}, "Rule of thumb: "), g.rule) : null))));
+      .map(([k, g]) => {
+        const body = h("div", { class: "body" }, h("p", {}, g.what), h("p", {}, h("b", {}, "Why it matters: "), g.why), g.rule ? h("p", {}, h("b", {}, "Rule of thumb: "), g.rule) : null);
+        let built = false;
+        return h("details", { class: "gl-item", id: `g-${k}`, on: { toggle: (e) => { if (e.target.open && !built) { built = true; const ex = examplesBox(k); if (ex) body.append(ex); } } } },
+          h("summary", {}, h("span", {}, g.term, h("span", { class: "gl-short" }, g.short))), body);
+      }));
     if (!list.children.length) list.append(h("p", { class: "empty" }, "No matching terms."));
   };
   search.addEventListener("input", draw);
@@ -1792,7 +1795,26 @@ function openTerm(key) {
     h("p", { class: "ink2" }, g.what),
     h("h4", {}, "Why it matters"), h("p", { class: "ink2" }, g.why),
     ...(g.rule ? [h("h4", {}, "Rule of thumb"), h("p", { class: "ink2" }, g.rule)] : []), judgeBox(key) || "",
+    examplesBox(key, CUR?.symbol) || "",
     h("a", { class: "small", href: `#/learn/g-${key}`, on: { click: closeSheet } }, "See all terms ›")));
+}
+
+// How every active ticker on the watchlist reads on this term: best to worst by the rule of thumb,
+// or highest first for numbers that have no good or bad level on their own.
+function examplesBox(key, curSym) {
+  const rows = tickers().filter((t) => t.tag !== "archived")
+    .map((t) => ({ sym: t.symbol, ex: A.example(key, t.d) })).filter((r) => r.ex && r.ex.value);
+  if (rows.length < 2) return null;
+  const rank = { good: 0, ok: 1, bad: 2 }, judged = !!rows[0].ex.tone;
+  rows.sort((a, b) => (judged ? rank[a.ex.tone] - rank[b.ex.tone] : (b.ex.x ?? -Infinity) - (a.ex.x ?? -Infinity)));
+  return h("div", { class: "wl-ex" },
+    h("h4", {}, "On your watchlist"),
+    h("ul", {}, rows.map(({ sym, ex }) => h("li", { class: sym === curSym ? "cur" : null },
+      ex.tone ? [thumb(ex.tone), h("span", { class: "vh" }, `${TONE_WORD[ex.tone]}: `)] : h("span", { class: "wl-dot", "aria-hidden": "true" }),
+      h("a", { href: `#/t/${sym}`, on: { click: closeSheet } }, sym),
+      h("span", {}, h("b", { class: "tnum" }, ex.value), ex.text ? h("span", { class: "muted" }, ` · ${ex.text}`) : null)))),
+    h("p", { class: "muted small" }, judged ? "Grouped by the rule of thumb above: passes, in between, then fails. Tickers without the data are left out."
+      : "Highest first. There's no good or bad level for this number on its own; it's here for comparison."));
 }
 
 // ---------------------------------------------------------------- research + tasks

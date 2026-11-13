@@ -55,7 +55,8 @@ Peer methods are left out with < 4 usable peers or when the middle-half multiple
 
 **Other helpers.**
 - `ratingScore()`: net analyst score (+2 … −2) and labels like "Hold, leaning sell". It replaces Yahoo's `recommendationMean`, which uses a different set of analysts. The Peers tab is the exception: peers only have `recommendationMean`.
-- `judge(key, d)`: places the company against a glossary rule of thumb.
+- `judge(key, d)`: places the company against a glossary rule of thumb. It follows the score's exceptions: growth after a big acquisition is judged on the year before, and rising estimates count as in between while `estimateDoubt()` holds.
+- `example(key, d)`: one ticker's reading for the glossary's "On your watchlist" list: `judge()` for terms with a rule, or a raw value (`RAW_EXAMPLES`, tone null, `x` to sort highest first) for numbers with no good or bad level (size, margins, 52-week range, drawdown, fair value).
 - `quarterScore()`: 5-check report grade.
 - `oneOffs()` / `oneOffMiss()` / `reportQuarter()`: one-off charges that explain a miss.
 - `translateRelease()`: pattern rules turning press-release sentences into plain English.
@@ -76,7 +77,7 @@ Hash router: `#/`, `#/t/SYM/<tab>`, `#/learn`, `#/settings`. Equity tabs: Summar
 
 **Previous / next ticker.** `tickerPager()` sits beside "‹ Watchlist" on the ticker page: home order, the home tag filter if the ticker is in it (else every active ticker; archived tickers step through the archived ones), wraps around, and keeps the current tab.
 
-**Rule-of-thumb badges.** `renderTicker` sets module-level `CUR` (cleared in `route()`); `termBtn(key)` appends a thumb from `A.judge(key, CUR)`. The popover and glossary sheet show the same verdict (`judgeBox`).
+**Rule-of-thumb badges.** `renderTicker` sets module-level `CUR` (cleared in `route()`); `termBtn(key)` appends a thumb from `A.judge(key, CUR)`. The popover and glossary sheet show the same verdict (`judgeBox`). The sheet and each Learn-page entry (built on first open) also list every active ticker via `examplesBox()`: grouped passes / in between / fails, the current ticker highlighted.
 
 **Hover popovers.** On `(hover: hover) and (pointer: fine)`, elements with `data-term` or `data-tip`/`data-tip-title` show a popover (delegated listeners near the end of `app.js`). Click still opens the bottom sheet.
 

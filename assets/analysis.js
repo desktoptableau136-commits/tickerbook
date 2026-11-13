@@ -1122,7 +1122,10 @@ export function judge(key, d) {
       return s && s.status !== "na" ? { tone: s.status, value: s.word, text: s.value } : null;
     }
     case "peg": return isNum(v.peg) && v.peg > 0 && !(expectedGrowth(d) > WILD_GROWTH) ? band(v.peg, 2, 1, (x) => num(x, 2), { good: "Under 1: cheap for its growth", ok: "1–2: fair", bad: "Over 2: paying up" }, false) : null;
-    case "revenueGrowth": return band(f.revenueGrowth, 0, 0.05, p1, { good: "Growing at a solid pace", ok: "Barely growing", bad: "Shrinking" });
+    case "revenueGrowth": {
+      const acq = acquisitionStep(d), b = band(acq ? acq.preGrowth : f.revenueGrowth, 0, 0.05, p1, { good: "Growing at a solid pace", ok: "Barely growing", bad: "Shrinking" });
+      return b && acq ? { ...b, value: `${pct(f.revenueGrowth, { sign: true })} reported, ${pct(acq.preGrowth, { sign: true })} before a big acquisition`, text: `Judged on the year before the deal: ${b.text.toLowerCase()}` } : b;
+    }
     case "operatingMargin": return band(f.operatingMargin, 0.1, 0.2, p1, { good: "Over 20%: strong", ok: "10–20%: decent", bad: "Under 10%: thin" });
     case "freeCashflow": {
       if (!isNum(f.freeCashflow) || !isNum(q.marketCap)) return null;
@@ -1171,7 +1174,8 @@ export function judge(key, d) {
       const t1 = estRow(d.earnings?.epsTrend, "+1y");
       if (!isNum(t1.current) || !isNum(t1["90daysAgo"]) || !t1["90daysAgo"] || newListing(d)) return null;
       const ch = t1.current / t1["90daysAgo"] - 1;
-      return { tone: ch > 0.01 ? "good" : ch > -0.01 ? "ok" : "bad", value: `${pct(ch, { sign: true })} in 90 days`, text: ch > 0.01 ? "Estimates rising" : ch > -0.01 ? "Estimates steady" : "Estimates falling: a warning" };
+      const unsure = ch > 0.01 && estimateDoubt(d);
+      return { tone: unsure ? "ok" : ch > 0.01 ? "good" : ch > -0.01 ? "ok" : "bad", value: `${pct(ch, { sign: true })} in 90 days`, text: unsure ? "Rising, but the estimates are very unsure" : ch > 0.01 ? "Estimates rising" : ch > -0.01 ? "Estimates steady" : "Estimates falling: a warning" };
     }
     case "expenseRatio": return band(fu.expenseRatio, 0.005, 0.001, (x) => pct(x, { digits: 2 }), { good: "Under 0.10%: very cheap", ok: "0.10–0.50%: fine", bad: "Expensive for an index fund" }, false);
     case "netAssets": return isNum(fu.netAssets) ? { tone: fu.netAssets >= 1e9 ? "good" : "ok", value: money(fu.netAssets), text: fu.netAssets >= 1e9 ? "Comfortably large" : "On the small side" } : null;
@@ -1195,6 +1199,33 @@ export function judge(key, d) {
     }
     default: return null;
   }
+}
+
+// One ticker's reading for a glossary term, for the "On your watchlist" examples. Terms with a rule
+// of thumb reuse judge(); size-type numbers that have no good or bad level on their own are shown raw
+// (tone null, x for sorting highest first).
+const RAW_EXAMPLES = {
+  marketCap: (d) => { const v = d.quote?.marketCap; return isNum(v) && { x: v, value: money(v), text: v > 200e9 ? "Mega cap" : v > 10e9 ? "Large cap" : v > 2e9 ? "Mid cap" : "Small cap" }; },
+  enterpriseValue: (d) => { const v = d.valuation?.enterpriseValue; return isNum(v) && { x: v, value: money(v), text: isNum(d.quote?.marketCap) ? `vs ${money(d.quote.marketCap)} market cap` : "" }; },
+  revenue: (d) => { const v = d.fundamentals?.revenueTTM; return isNum(v) && { x: v, value: money(v), text: "last 12 months" }; },
+  ebitda: (d) => { const v = d.fundamentals?.ebitda; return isNum(v) && { x: v, value: money(v), text: "last 12 months" }; },
+  operatingCashflow: (d) => { const v = d.fundamentals?.operatingCashflow; return isNum(v) && { x: v, value: money(v), text: "last 12 months" }; },
+  capex: (d) => { const v = d.fundamentals?.capexTTM; return isNum(v) && { x: Math.abs(v), value: money(Math.abs(v)), text: isNum(d.fundamentals?.revenueTTM) && d.fundamentals.revenueTTM > 0 ? `${pct(Math.abs(v) / d.fundamentals.revenueTTM, { digits: 0 })} of revenue` : "" }; },
+  eps: (d) => { const v = d.fundamentals?.epsTTM; return isNum(v) && { x: v, value: price(v), text: "per share, last 12 months" }; },
+  grossMargin: (d) => { const v = d.fundamentals?.grossMargin; return isNum(v) && { x: v, value: pct(v), text: `${price(v)} of every $1 of sales left after making the product` }; },
+  netMargin: (d) => { const v = d.fundamentals?.netMargin; return isNum(v) && { x: v, value: pct(v), text: `${price(v)} of every $1 of sales kept as profit` }; },
+  priceToSales: (d) => { const v = d.valuation?.priceToSales; return isNum(v) && v > 0 && { x: v, value: times(v), text: "price ÷ a year of sales" }; },
+  priceToBook: (d) => { const v = d.valuation?.priceToBook; return isNum(v) && v > 0 && { x: v, value: times(v), text: "price ÷ book value" }; },
+  beta: (d) => { const v = d.quote?.beta; return isNum(v) && { x: v, value: num(v, 2), text: `moves about ${pct(v, { digits: 0 })} as much as the market` }; },
+  range52: (d) => { const q = d.quote || {}; return isNum(q.price) && isNum(q.high52) && isNum(q.low52) && q.high52 > q.low52 && { x: (q.price - q.low52) / (q.high52 - q.low52), value: `${pct((q.price - q.low52) / (q.high52 - q.low52), { digits: 0 })} of the way up`, text: `${price(q.low52)} to ${price(q.high52)}, now ${price(q.price)}` }; },
+  drawdown: (d) => { const q = d.quote || {}; return isNum(q.price) && isNum(q.allTimeHigh) && q.allTimeHigh > 0 && { x: q.price / q.allTimeHigh - 1, value: pct(q.price / q.allTimeHigh - 1, { sign: true, digits: 0 }), text: `from its high of ${price(q.allTimeHigh)}` }; },
+  fairValue: (d) => { const g = fairValueGap(d); return g && { x: g.gap, value: price(g.avg), text: `${pct(Math.abs(g.gap), { digits: 0 })} ${g.gap >= 0 ? "above" : "below"} today's ${price(d.quote.price)} (average of ${g.n} methods, no analyst targets)` }; },
+  institutionOwnership: (d) => { const v = d.fundamentals?.institutionOwnership; return isNum(v) && { x: v, value: pct(v, { digits: 0 }), text: "of shares held by funds and institutions" }; },
+};
+export function example(key, d) {
+  if (!d) return null;
+  if (RAW_EXAMPLES[key]) { const r = RAW_EXAMPLES[key](d); return r ? { tone: null, ...r } : null; }
+  return judge(key, d);
 }
 
 export function newsMood(n) {
