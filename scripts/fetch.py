@@ -17,6 +17,7 @@ Writes:
   data/index.json      list of tickers + tags + last update time
   data/last_request.json  outcome of the most recent add/remove/tag request
   data/_ideas.json     companies worth a look (watchlist peers + a broad screen), refresh only
+  data/logos/          <SYM>.png/.jpg company icons + index.json (outcome per symbol; "skip": true hides a wrong one)
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -911,6 +913,7 @@ def idea_info(sym: str):
         "industry": i.get("industryDisp") or i.get("industry"),
         "sector": i.get("sectorDisp") or i.get("sector"),
         "about": about or None,
+        "website": i.get("website"),
         "price": clean(i.get("currentPrice") or i.get("regularMarketPrice")),
         "ma200": clean(i.get("twoHundredDayAverage")),
         "marketCap": clean(i.get("marketCap")),
@@ -1012,6 +1015,200 @@ def build_ideas(wl):
         out.append(x)
     write_json(path, {"updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "screen": screen, "list": out})
     print(f"   {len(out)} ideas ({sum('neighbor' in x['sources'] for x in out)} neighbors, {sum('screen' in x['sources'] for x in out)} from the screen)")
+
+
+# ---------------------------------------------------------------- logos
+
+# Logos are saved into the repo (data/logos/<SYM>.png or .jpg) by the update, so the site only ever loads
+# its own files: no logo service ever sees which tickers you look at. The source is the square
+# "apple-touch-icon" most company websites publish for phone home screens (usually 180px).
+LOGOS = DATA / "logos"
+LOGO_MIN_PX = 48          # smaller icons look blurry at card size; the card shows a letter tile instead
+LOGO_MAX_BYTES = 200_000
+LOGO_RECHECK_OK = 180     # days before a saved logo is fetched again
+LOGO_RECHECK_MISS = 30    # days before a company without one is tried again
+LOGO_UA = "Mozilla/5.0 (compatible; TickerbookLogoFetch/1.0)"
+
+
+class _IconLinks(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.found = []  # (priority, size, href)
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "link":
+            return
+        a = {k.lower(): (v or "") for k, v in attrs}
+        rel, href = a.get("rel", "").lower(), a.get("href", "").strip()
+        if not href or "icon" not in rel or "mask" in rel:
+            return
+        m = re.search(r"(\d+)x\d+", a.get("sizes", ""))
+        size = int(m.group(1)) if m else 0
+        self.found.append((0 if "apple-touch-icon" in rel else 1, -size, href))
+
+
+def _get(url, limit):
+    req = urllib.request.Request(url, headers={"User-Agent": LOGO_UA, "Accept": "*/*"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        return r.geturl(), r.headers.get("Content-Type", ""), r.read(limit + 1)
+
+
+def png_size(b: bytes):
+    """Width and height from a PNG header, or None if it isn't a PNG."""
+    if len(b) < 24 or b[:8] != b"\x89PNG\r\n\x1a\n" or b[12:16] != b"IHDR":
+        return None
+    return int.from_bytes(b[16:20], "big"), int.from_bytes(b[20:24], "big")
+
+
+def jpeg_size(b: bytes):
+    """Width and height from a JPEG's frame header, or None if it isn't a JPEG."""
+    if b[:2] != b"\xff\xd8":
+        return None
+    i = 2
+    while i + 9 < len(b):
+        if b[i] != 0xFF:
+            return None
+        marker, seg = b[i + 1], int.from_bytes(b[i + 2:i + 4], "big")
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            return int.from_bytes(b[i + 7:i + 9], "big"), int.from_bytes(b[i + 5:i + 7], "big")
+        i += 2 + seg
+    return None
+
+
+def image_kind(b: bytes):
+    """("png" | "jpg", width, height), or None."""
+    d = png_size(b)
+    if d:
+        return ("png", *d)
+    d = jpeg_size(b)
+    return ("jpg", *d) if d else None
+
+
+def as_image(b: bytes):
+    """A PNG or JPEG as is, or the largest PNG inside a .ico (modern favicons embed them).
+    Anything else returns None; SVG in particular is never saved, since it can carry scripts."""
+    if image_kind(b):
+        return b
+    if len(b) < 6 or b[:4] != b"\x00\x00\x01\x00":
+        return None
+    best = None
+    for k in range(int.from_bytes(b[4:6], "little")):
+        e = b[6 + 16 * k: 22 + 16 * k]
+        if len(e) < 16:
+            break
+        size, off = int.from_bytes(e[8:12], "little"), int.from_bytes(e[12:16], "little")
+        part = b[off: off + size]
+        if png_size(part) and (best is None or png_size(part)[0] > png_size(best)[0]):
+            best = part
+    return best
+
+
+def find_logo(website: str):
+    """The company's square icon as PNG bytes, or (None, reason)."""
+    if not website or not website.startswith(("http://", "https://")):
+        return None, "no website"
+    urljoin = urllib.parse.urljoin
+    cands = []
+    try:
+        base, _, html = _get(website, 600_000)
+        p = _IconLinks()
+        p.feed(html.decode("utf-8", "replace"))
+        cands = [urljoin(base, href) for _, _, href in sorted(p.found)]
+    except Exception:
+        base = website  # many big companies' sites block automated requests
+    cands += [urljoin(base, "/apple-touch-icon.png"), urljoin(base, "/apple-touch-icon-precomposed.png")]
+    # Fallback: Google's public favicon service often has the icon of a site that blocks us. It's
+    # called only from the update job, never from the browser.
+    host = urllib.parse.urlparse(website).hostname
+    if host:
+        cands.append(f"https://www.google.com/s2/favicons?domain={host}&sz=128")
+    why = "no square icon found"
+    for url in dict.fromkeys(cands):
+        if not url.startswith("https://"):
+            continue
+        try:
+            _, ctype, b = _get(url, LOGO_MAX_BYTES)
+        except Exception:
+            continue
+        if len(b) > LOGO_MAX_BYTES:
+            why = "icon too large"
+            continue
+        b = as_image(b)
+        if not b:
+            why = "icon isn't a PNG or JPEG"
+            continue
+        _, w, h = image_kind(b)
+        if min(w, h) < LOGO_MIN_PX or max(w, h) > 2 * min(w, h):
+            why = f"icon too small or not square ({w}×{h})"
+            continue
+        return b, url
+    return None, why
+
+
+def update_logos(symbols_sites: dict):
+    """symbols_sites: {SYM: website}. Fetches logos that are missing or due for a recheck and
+    records the outcome in data/logos/index.json. An entry with "skip": true (set by hand when a
+    logo is wrong) is never fetched and shows the letter tile."""
+    LOGOS.mkdir(exist_ok=True)
+    path = LOGOS / "index.json"
+    try:
+        idx = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        idx = {}
+    now = datetime.now(timezone.utc)
+
+    def due(sym, site):
+        e = idx.get(sym) or {}
+        if e.get("skip"):
+            return False
+        try:
+            age = (now - datetime.fromisoformat(e["checked"])).days
+        except Exception:
+            return True
+        return age >= (LOGO_RECHECK_OK if e.get("ok") else LOGO_RECHECK_MISS) or e.get("site") != site
+
+    todo = [(s, w) for s, w in symbols_sites.items() if due(s, w)]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as ex:  # each worker hits a different company's site
+        found = list(ex.map(lambda sw: quiet(lambda: find_logo(sw[1]), (None, "error")), todo))
+    fetched = len(todo)
+    for (sym, site), (b, src) in zip(todo, found):
+        e = idx.get(sym) or {}
+        if b:
+            ext = image_kind(b)[0]
+            for old in LOGOS.glob(f"{sym}.*"):
+                if old.suffix in (".png", ".jpg"):
+                    old.unlink()
+            (LOGOS / f"{sym}.{ext}").write_bytes(b)
+            idx[sym] = {"ok": True, "file": f"{sym}.{ext}", "site": site, "src": src, "checked": now.strftime("%Y-%m-%dT%H:%M:%SZ")}
+        else:
+            # keep an older good logo if this attempt failed
+            idx[sym] = {**e, "ok": bool(e.get("ok")) and (LOGOS / str(e.get("file"))).exists(), "site": site, "why": src,
+                        "checked": now.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    write_json(path, dict(sorted(idx.items())))
+    have = sum(1 for s in symbols_sites if idx.get(s, {}).get("ok"))
+    print(f"   logos: {have} of {len(symbols_sites)} (checked {fetched} this run)")
+
+
+def logo_sites(wl, extra=None):
+    """Website for every active watchlist ticker and every idea."""
+    out = {}
+    for t in wl["tickers"]:
+        if t["tag"] == "archived":
+            continue
+        try:
+            j = json.loads((DATA / f"{t['symbol']}.json").read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if j.get("type") != "ETF":
+            out[t["symbol"]] = (j.get("profile") or {}).get("website")
+    try:
+        for x in json.loads((DATA / "_ideas.json").read_text(encoding="utf-8")).get("list", []):
+            out.setdefault(x["symbol"], x.get("website"))
+    except Exception:
+        pass
+    out.update(extra or {})
+    return out
 
 
 # ---------------------------------------------------------------- main
@@ -1235,6 +1432,8 @@ def main():
             report(False, f"Couldn't load {symbol}: {e}")
             return
         write_json(DATA / f"{symbol}.json", d)
+        if d.get("type") != "ETF":
+            quiet(lambda: update_logos({symbol: (d.get("profile") or {}).get("website")}))
         if not existing:
             wl["tickers"].append(entry)
             save_watchlist(wl)
@@ -1278,6 +1477,11 @@ def main():
         print("-> ideas")
         try:
             build_ideas(wl)
+        except Exception as e:
+            print(f"   FAILED: {e}")
+        print("-> logos")
+        try:
+            update_logos(logo_sites(wl))
         except Exception as e:
             print(f"   FAILED: {e}")
 

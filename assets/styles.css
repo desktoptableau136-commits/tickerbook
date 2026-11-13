@@ -1029,3 +1029,19 @@ html.dash-on .dash-dividends .tiles, html.dash-on .dash-divfund .tiles { grid-te
 .idea-actions { display: flex; gap: 8px; margin-top: 16px; }
 .idea-actions > * { flex: 1 1 0; }
 @media (min-width: 960px) { .ideas-how-body { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* Logos: a white tile in both themes, since many logos are dark marks on a transparent background */
+.logo { flex: none; width: var(--logo, 32px); height: var(--logo, 32px); border-radius: calc(var(--logo, 32px) / 4); background: #fff; overflow: hidden;
+  display: inline-grid; place-items: center; box-shadow: inset 0 0 0 1px var(--border); }
+.logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.logo.letter { background: var(--surface-2); color: var(--ink-2); font-weight: 750; font-size: calc(var(--logo, 32px) * 0.45); line-height: 1; }
+.tcard-head > .logo { margin-top: 1px; }
+.qid h1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.qid h1 .logo { margin-right: 2px; }
+/* tag icons */
+.tagic { flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); cursor: default; }
+.tagic.researching { background: color-mix(in srgb, var(--series-2) 16%, transparent); }
+.tagic.archived { background: none; box-shadow: inset 0 0 0 1px var(--border); color: var(--muted); }
+.tagic-svg { display: inline-flex; }
+.qid h1 .tagic { width: 26px; height: 26px; }
+.chip .tagic-svg { margin-right: 5px; vertical-align: -2px; }

@@ -76,7 +76,7 @@ function pref(k, v) {
 }
 
 // ================================================================ data
-const state = { index: null, data: {}, bench: null, ideas: null, filter: pref("filter") || "all", ideaFilter: pref("ideaFilter") || "all", source: "site", task: null };
+const state = { index: null, data: {}, bench: null, ideas: null, logos: {}, filter: pref("filter") || "all", ideaFilter: pref("ideaFilter") || "all", source: "site", task: null };
 
 async function fetchJSON(path) {
   if (GH.connected()) {
@@ -96,6 +96,7 @@ async function loadAll() {
   // { SPY: {dates, close}, QQQ: … }; an older file (the ^GSPC index, no dividends) is ignored
   try { state.bench = (await fetchJSON("data/_bench.json")).benches || null; } catch { state.bench = null; }
   try { state.ideas = await fetchJSON("data/_ideas.json"); } catch { state.ideas = null; }
+  try { state.logos = await fetchJSON("data/logos/index.json"); } catch { state.logos = {}; }
 }
 
 function tickers() {
@@ -159,6 +160,40 @@ function route() {
 }
 window.addEventListener("hashchange", () => { route(); window.scrollTo(0, 0); });
 
+// ================================================================ logos + tag icons
+// Logos are saved into the repo by the daily update (fetch.py update_logos), so the page only loads
+// its own files. Without one, a letter tile stands in. Decorative: the symbol always sits beside it.
+function logo(sym, name, size = 32) {
+  const L = state.logos?.[sym], style = `--logo:${size}px`;
+  if (L?.ok && L.file) {
+    const img = h("img", { src: `data/logos/${encodeURIComponent(L.file)}?v=${encodeURIComponent((L.checked || "").slice(0, 10))}`, alt: "", loading: "lazy", decoding: "async" });
+    const tile = h("span", { class: "logo", style, "aria-hidden": "true" }, img);
+    img.addEventListener("error", () => { tile.replaceWith(letterTile(sym, name, style)); }, { once: true });
+    return tile;
+  }
+  return letterTile(sym, name, style);
+}
+function letterTile(sym, name, style) {
+  const ch = (String(name || sym).replace(/^the\s+/i, "").match(/[A-Za-z0-9]/) || [sym[0]])[0].toUpperCase();
+  return h("span", { class: "logo letter", style, "aria-hidden": "true" }, ch);
+}
+// Tags as small icons (eye = watching, magnifier = researching, box = archived), named on hover and
+// for screen readers. The home filter chips show the same icons with the words, as the key.
+const TAG_ICON = {
+  watching: '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>',
+  researching: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  archived: '<rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><path d="M10 13h4"/>',
+};
+const TAG_TIP = { watching: "Watching: a company you follow", researching: "Researching: still deciding whether to follow it", archived: "Archived: paused, not refreshed" };
+function tagSvg(tag) {
+  return h("span", { class: "tagic-svg", "aria-hidden": "true", html: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${TAG_ICON[tag] || ""}</svg>` });
+}
+function tagIcon(tag) {
+  if (!TAG_ICON[tag]) return null;
+  const word = tag[0].toUpperCase() + tag.slice(1);
+  return h("span", { class: `tagic ${tag}`, role: "img", "aria-label": word, "data-tip": TAG_TIP[tag], "data-tip-title": word }, tagSvg(tag));
+}
+
 // ================================================================ home
 function renderHome() {
   const every = tickers();
@@ -178,7 +213,7 @@ function renderHome() {
   const chips = h("div", { class: "chips", role: "group", "aria-label": "Filter by tag" },
     ["all", "watching", "researching"].filter((f) => f === "all" || counts[f]).map((f) =>
       h("button", { class: "chip", type: "button", "aria-pressed": String(state.filter === f), on: { click: () => { state.filter = f; pref("filter", f); route(); } } },
-        `${f === "all" ? "All" : f[0].toUpperCase() + f.slice(1)} · ${counts[f] || 0}`)));
+        f === "all" ? null : tagSvg(f), `${f === "all" ? "All" : f[0].toUpperCase() + f.slice(1)} · ${counts[f] || 0}`)));
 
   const grid = h("div", { class: "grid", style: "margin-top:12px" }, shown.map(({ d, tag }) => tickerCard(d, tag)));
   if (!shown.length) grid.append(h("div", { class: "empty card" }, "Nothing here yet."));
@@ -351,8 +386,9 @@ function tickerCard(d, tag) {
   const news = unseenChanges(d), drop = A.sharpDrop(d);
   return h("a", { class: "card tcard", href: `#/t/${d.symbol}`, "aria-label": `${d.symbol}, ${A.price(d.quote.price)}, ${ov.lean}${news.length ? `, ${news.length} changes since you last looked` : ""}` },
     h("div", { class: "tcard-head" },
+      logo(d.symbol, d.name),
       h("div", { class: "grow" },
-        h("div", { class: "tcard-top" }, h("span", { class: "tcard-sym" }, d.symbol), h("span", { class: `tag ${tag}` }, tag),
+        h("div", { class: "tcard-top" }, h("span", { class: "tcard-sym" }, d.symbol), tagIcon(tag),
           drop ? h("span", { class: "drop-badge", "data-tip": `Down ${A.pct(-drop.change, { digits: 0 })} in a month. The score lags news like this; open the ticker for why.`, "data-tip-title": "Big drop" }, `⚠ Down ${A.pct(-drop.change, { digits: 0 })}`) : null,
           news.length ? h("span", { class: "new-badge", "data-tip": news.map((x) => x.text).join(" · "), "data-tip-title": "Since you last looked" }, `${news.length} new`) : null),
         h("div", { class: "tcard-name" }, d.name)),
@@ -406,6 +442,7 @@ function ideaCard(i, isNew, hidden) {
   const { x, ov } = i;
   return h("section", { class: "card icard" },
     h("div", { class: "tcard-head" },
+      logo(x.symbol, x.name),
       h("div", { class: "grow" },
         h("div", { class: "tcard-top" }, h("span", { class: "tcard-sym" }, x.symbol),
           isNew ? h("span", { class: "new-badge" }, "new") : null,
@@ -522,7 +559,7 @@ function renderTicker(sym, tab) {
   const head = h("div", { class: "qtop" },
     h("div", { class: "qid" },
       h("div", { class: "qnav" }, h("a", { class: "back", href: "#/" }, "‹ Watchlist"), tickerPager(sym, tab)),
-      h("h1", {}, d.symbol, tag ? h("span", { class: `tag ${tag}` }, tag) : null),
+      h("h1", {}, d.type === "ETF" ? null : logo(d.symbol, d.name, 40), d.symbol, tag ? tagIcon(tag) : null),
       h("div", { class: "qname" },
         about ? h("span", { class: "has-tip", "data-tip": about.length > 700 ? about.slice(0, 700).replace(/\s\S*$/, "") + "…" : about, "data-tip-title": d.name }, d.name) : d.name,
         d.profile?.industry ? ` · ${d.profile.industry}` : d.fund?.category ? ` · ${d.fund.category}` : "")),
