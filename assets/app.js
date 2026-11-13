@@ -338,14 +338,15 @@ function tickerCard(d, tag) {
   const foot = d.type === "ETF"
     ? h("span", { class: "muted" }, `Index fund · ${A.pct(d.fund?.expenseRatio, { digits: 2 })} fee`)
     : h("span", { class: "muted" }, days != null && days >= 0 ? `Earnings in ${days}d` : `1Y ${A.pct(y1, { sign: true })}`);
-  const news = unseenChanges(d);
+  const news = unseenChanges(d), drop = A.sharpDrop(d);
   return h("a", { class: "card tcard", href: `#/t/${d.symbol}`, "aria-label": `${d.symbol}, ${A.price(d.quote.price)}, ${ov.lean}${news.length ? `, ${news.length} changes since you last looked` : ""}` },
     h("div", { class: "tcard-head" },
       h("div", { class: "grow" },
         h("div", { class: "tcard-top" }, h("span", { class: "tcard-sym" }, d.symbol), h("span", { class: `tag ${tag}` }, tag),
+          drop ? h("span", { class: "drop-badge", "data-tip": `Down ${A.pct(-drop.change, { digits: 0 })} in a month. The score lags news like this; open the ticker for why.`, "data-tip-title": "Big drop" }, `⚠ Down ${A.pct(-drop.change, { digits: 0 })}`) : null,
           news.length ? h("span", { class: "new-badge", "data-tip": news.map((x) => x.text).join(" · "), "data-tip-title": "Since you last looked" }, `${news.length} new`) : null),
         h("div", { class: "tcard-name" }, d.name)),
-      h("span", { class: "has-tip", "data-tip": `${ov.lean}${ov.score != null ? `: ${ov.good} of ${ov.total} checks positive${ov.bad ? `, ${ov.bad} negative` : ""}` : ""}. A simple checklist tally out of 100, not a prediction. Open the ticker to see each check.`, "data-tip-title": ov.score != null ? `Score ${ov.score}` : "No score yet" },
+      h("span", { class: "has-tip", "data-tip": `${ov.lean}${ov.score != null ? `: ${ov.good} of ${ov.total} checks positive${ov.bad ? `, ${ov.bad} negative` : ""}` : ""}. A weighted checklist out of 100, not a prediction.${drop ? " It lags news, and the price just dropped sharply." : ""} Open the ticker to see each check.`, "data-tip-title": ov.score != null ? `Score ${ov.score}` : "No score yet" },
         scoreRing(ov, 40, 4, "mini"))),
     h("div", { class: "tcard-mid" },
       h("div", {},
@@ -395,9 +396,19 @@ function renderTicker(sym, tab) {
     h("span", { class: "tabs-note" }, "Learning tool · not financial advice"));
 
   const body = h("div", {});
-  view.append(head, archiveNote(d, sym), newListingNote(d), changesBanner(d) || "", tabBar, body);
+  view.append(head, archiveNote(d, sym), newListingNote(d), dropNote(d), changesBanner(d) || "", tabBar, body);
   TAB_FN[tab](d, body);
   body.append(h("p", { class: "disclaimer" }, "For learning and research only. Not financial advice."));
+}
+
+// Sharp drop: the checks lag news, so say so where the score is shown (icon + word with the red tint).
+function dropNote(d) {
+  const dr = A.sharpDrop(d);
+  if (!dr) return "";
+  return h("div", { class: "notice bad", role: "note" },
+    h("b", {}, "⚠ Big drop: "), `down ${A.pct(-dr.change, { digits: 0 })} in a month (${A.price(dr.from)} on ${A.date(dr.fromDate)} → ${A.price(d.quote.price)}). `,
+    "The score is built from reported results and analyst forecasts, which take weeks to catch up with news, and a falling price makes valuation and target upside look better. So the score probably looks rosier than things are. ",
+    h("a", { href: `#/t/${d.symbol}/news` }, "Read the news ›"));
 }
 
 // Recently listed: why several checks say "too new to judge" (the same rules apply to every stock).
@@ -570,12 +581,21 @@ function verdictCard(d) {
       h("div", {},
         h("div", { class: "muted small" }, "The quick read"),
         h("h2", {}, ov.lean),
-        h("div", { class: "ink2 small" }, `${ov.good} of ${ov.total} signals positive${ov.bad ? `, ${ov.bad} negative` : ""}`))),
+        h("div", { class: "ink2 small" }, `${ov.good} of ${ov.total} signals positive${ov.bad ? `, ${ov.bad} negative` : ""}`),
+        ov.score != null ? h("div", { class: "muted small tnum" }, `${fmtPts(ov.earned)} of ${fmtPts(ov.possible)} points = ${ov.score}`) : null)),
     summary ? h("p", { class: "verdict-sum" }, summary) : null,
     h("div", { class: "signals" }, sig.map((s) => h("details", { class: "signal" },
       h("summary", {}, h("span", { class: "lbl" }, h("span", { class: "has-tip", "data-tip": s.text, "data-tip-title": `${s.label}: ${s.word}` }, s.label)), h("span", { class: "val" }, s.value), pill(s.status, s.word)),
-      h("div", { class: "body" }, h("p", {}, s.text), s.term ? h("button", { class: "linkish small", type: "button", on: { click: () => openTerm(s.term) } }, `What's ${GLOSSARY[s.term].term}?`) : null)))),
-    h("p", { class: "muted small", style: "margin:10px 0 0" }, h("span", { class: "only-touch" }, "Tap a row for what it means. "), h("span", { class: "only-hover" }, "Hover a row for what it means. "), "The score is a simple checklist (green = 1, amber = ½, red = 0), not a prediction. ", h("a", { href: `#/t/${d.symbol}/walk` }, "New to this? Walk through it step by step ›")));
+      h("div", { class: "body" }, h("p", {}, s.text), signalMath(s, ov), s.term ? h("button", { class: "linkish small", type: "button", on: { click: () => openTerm(s.term) } }, `What's ${GLOSSARY[s.term].term}?`) : null)))),
+    h("p", { class: "muted small", style: "margin:10px 0 0" }, h("span", { class: "only-touch" }, "Tap a row for what it means and how it's scored. "), h("span", { class: "only-hover" }, "Hover a row for what it means; click it for how it's scored. "), "Each check earns 0 to 1 on a sliding scale, and business checks weigh more than mood checks (analyst targets, price trend). It's a checklist, not a prediction. ", h("a", { href: `#/t/${d.symbol}/walk` }, "New to this? Walk through it step by step ›")));
+}
+
+const fmtPts = (x) => (Math.round(x * 10) / 10).toString();
+// One line under each check: its sliding scale, what it earned, and its weight.
+function signalMath(s, ov) {
+  if (s.status === "na") return h("p", { class: "muted small" }, "Not judged yet, so it's left out of the score.");
+  if (!isNum(s.pts)) return null;
+  return h("p", { class: "muted small tnum" }, `How it's scored: ${s.rule}. Here it earns ${s.pts.toFixed(2)} × weight ${s.weight} = ${fmtPts(s.pts * s.weight)} of the ${fmtPts(ov.possible)} points.`);
 }
 
 function rangeFigure(lo, hi, cur, { mean, labels } = {}) {

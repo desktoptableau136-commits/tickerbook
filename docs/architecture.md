@@ -40,6 +40,8 @@ Detailed reference, split out of `CLAUDE.md` to keep that file lean. Read the se
 
 Pure functions: formatters, the signal checklist (`equitySignals`, `fundSignals`, thresholds inline), `overall()`, the earnings story, valuation, and the newer feature helpers. Generated sentences may mark phrases with `**bold**`, rendered via `rich()`.
 
+**The score.** Weighted and sliding, not a pass/fail tally. Each check's pill keeps its three-step status (matching the glossary `rule` text), but for the score each check also gets `pts` (0–1 along a straight `ramp()` between two anchors, stated in its `rule` field and shown under the row) and a weight from `SCORE_WEIGHTS` (equity weights sum to 10: business checks 1.5–2, estimates/earnings record 1, analyst view and price trend 0.75). `overall()` = Σ pts×weight ÷ Σ weight of judged checks; `na` checks drop out. Checks without `pts` (dividend safety) fall back to green 1 / amber ½ / red 0, weight 1. Bump `SCORE_VERSION` when the formula changes so "since you last looked" doesn't report it as news. `sharpDrop()` (equities, ≤ −15% over ~30 days of `prices`) adds a page-level "Big drop" notice, a home-card badge and a walkthrough line, and caps the analyst-view check at ½ (status `ok`, "Upside, but stale"), because a crash makes stale targets and the forward P/E look better. It deliberately doesn't otherwise change the score: the score reads reported numbers, and the notice says it lags news.
+
 **Valuation: `valuationMethods()` returns 7 methods.**
 1. "Future profits" (P/E).
 2. "Cash it generates" (DCF). Left out by default when FCF < 50% of net income.

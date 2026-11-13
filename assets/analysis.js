@@ -95,6 +95,23 @@ export function newListing(d) {
   return { listed: first, months: Math.max(1, Math.round(days / 30.44)), tradingDays: dates.length, reported };
 }
 
+// A fall of 15%+ over the last month. The checks lean on reported results and analyst forecasts,
+// which take weeks to catch up with news, and a falling price makes valuation and target upside look
+// *better*. So the page warns, and the analyst check stops counting stale targets as upside.
+export const SHARP_DROP = -0.15;
+export function sharpDrop(d) {
+  if (d.type === "ETF") return null;
+  const dates = d.prices?.dates || [], close = d.prices?.close || [], now = d.quote?.price;
+  if (!isNum(now) || dates.length < 2) return null;
+  const cut = Date.parse(dates[dates.length - 1]) - 30 * 864e5;
+  let i = dates.length - 1;
+  while (i > 0 && Date.parse(dates[i]) > cut) i--;
+  const from = close[i];
+  if (Date.parse(dates[i]) > cut || !isNum(from) || from <= 0) return null;
+  const change = now / from - 1;
+  return change <= SHARP_DROP ? { change, from, fromDate: dates[i] } : null;
+}
+
 function lastQuarterBeats(d) {
   const h = (d.earnings?.history || []).slice(-4);
   return { n: h.length, beats: h.filter((x) => isNum(x.surprise) && x.surprise > 0).length };
@@ -106,6 +123,20 @@ function lastQuarterBeats(d) {
 function sig(key, label, status, word, value, text, termKey) {
   return { key, label, status, word, value, text, term: termKey };
 }
+
+// The score is weighted and sliding: each check earns 0–1 along a straight line between `zeroAt`
+// and `oneAt` (either direction), times its weight. Small moves nudge the score instead of
+// flipping a whole step. The pill keeps the three-step status so it matches the glossary rules.
+const ramp = (x, zeroAt, oneAt) => Math.min(1, Math.max(0, (x - zeroAt) / (oneAt - zeroAt)));
+const scale = (s, pts, rule) => Object.assign(s, { pts, rule });
+// Weights add up to 10. Business checks count most; mood checks (targets, price trend) least.
+export const SCORE_WEIGHTS = {
+  equity: { valuation: 2, growth: 1.5, profit: 1.5, health: 1.5, track: 1, revisions: 1, analysts: 0.75, trend: 0.75 },
+  fund: { cost: 3, concentration: 2.5, returns: 2, valuation: 1.5, trend: 1 },
+};
+const weigh = (out, kind) => out.map((s) => ({ ...s, weight: SCORE_WEIGHTS[kind][s.key] ?? 1 }));
+// Bump when the formula changes, so "since your last visit" doesn't report a formula change as news.
+export const SCORE_VERSION = 2;
 
 export function equitySignals(d) {
   const v = d.valuation || {}, f = d.fundamentals || {}, q = d.quote || {}, a = d.analysts || {};
@@ -132,12 +163,15 @@ export function equitySignals(d) {
     }[st];
     const low = fpe < 6 ? " A forward P/E this low is unusual; it often means the market doubts the estimates." : "";
     const lev = leverage(d);
+    const vp = isNum(peg) ? ramp(peg, 2.5, 0.8) : ramp(fpe, 35, 14);
+    const vRule = isNum(peg) ? "PEG 2.5 or higher earns 0, 0.8 or lower earns 1" : "forward P/E 35 or higher earns 0, 14 or lower earns 1";
     if (st === "good" && lev && lev.ratio > 3.5) {
-      out.push(sig("valuation", "Valuation", "ok", "Cheap, but risky", `${times(fpe)} fwd P/E${isNum(peg) ? ` · PEG ${num(peg, 1)}` : ""}`,
-        `Trading at only ${times(fpe)} next year's expected earnings${gTxt}, which looks cheap. But the company carries heavy debt (${num(lev.ratio, 1)}× EBITDA), so its earnings are riskier than the P/E suggests. Low prices on heavily indebted companies are often the market pricing in that risk.`, "peg"));
+      out.push(scale(sig("valuation", "Valuation", "ok", "Cheap, but risky", `${times(fpe)} fwd P/E${isNum(peg) ? ` · PEG ${num(peg, 1)}` : ""}`,
+        `Trading at only ${times(fpe)} next year's expected earnings${gTxt}, which looks cheap. But the company carries heavy debt (${num(lev.ratio, 1)}× EBITDA), so its earnings are riskier than the P/E suggests. Low prices on heavily indebted companies are often the market pricing in that risk.`, "peg"),
+        Math.min(vp, 0.5), `${vRule}; capped at ½ while debt is over 3.5× EBITDA`));
     } else {
-      out.push(sig("valuation", "Valuation", st, word, `${times(fpe)} fwd P/E${isNum(peg) ? ` · PEG ${num(peg, 1)}` : ""}`,
-        `Trading at ${times(fpe)} next year's expected earnings${gTxt}. ${meaning}${low}`, "peg"));
+      out.push(scale(sig("valuation", "Valuation", st, word, `${times(fpe)} fwd P/E${isNum(peg) ? ` · PEG ${num(peg, 1)}` : ""}`,
+        `Trading at ${times(fpe)} next year's expected earnings${gTxt}. ${meaning}${low}`, "peg"), vp, vRule));
     }
   }
 
@@ -151,6 +185,7 @@ export function equitySignals(d) {
         ok: `Revenue grew ${pct(rg)} vs a year ago: positive but modest. Profit growth will lean on cost control or buybacks.`,
         bad: `Revenue ${rg < 0 ? "fell" : "barely grew"} (${pct(rg, { sign: true })} vs a year ago). Shrinking or flat sales make it hard to grow profits long term.`,
       }[st], "revenueGrowth"));
+    scale(out.at(-1), ramp(rg, -0.02, 0.15), "−2% or worse earns 0, +15% or better earns 1");
   }
 
   // 3. Profitability
@@ -164,6 +199,7 @@ export function equitySignals(d) {
         ok: "Healthy, though not exceptional.",
         bad: "Thin margins leave little cushion if costs rise or sales slow.",
       }[st]}`, "operatingMargin"));
+    scale(out.at(-1), ramp(om, 0.05, 0.25), "5% or less earns 0, 25% or more earns 1");
   }
 
   // 4. Balance sheet
@@ -181,6 +217,7 @@ export function equitySignals(d) {
             ok: "Manageable, but worth watching if business slows.",
             bad: "High. Interest costs eat into profit, and there's little room for error if rates stay high or business weakens.",
           }[st]}${plainLn}`, "netDebtToEbitda"));
+    scale(out.at(-1), ramp(lev, 4.5, 1), "4.5× or more earns 0, 1× or less (or net cash) earns 1");
   }
 
   // 5. Earnings track record
@@ -197,6 +234,7 @@ export function equitySignals(d) {
         ok: "Some misses. Results are less predictable than the best companies'.",
         bad: "Frequently falls short of expectations, a sign the business is harder to forecast or under pressure.",
       }[st]}`, "epsSurprise"));
+    scale(out.at(-1), beats / n, `the share of quarters that beat (${beats} of ${n})`);
   }
 
   // 6. Estimate momentum
@@ -216,17 +254,22 @@ export function equitySignals(d) {
         ok: "Expectations are stable.",
         bad: "Analysts are cutting forecasts. That pressure often weighs on the stock until it stops.",
       }[st]}`, "estimateRevisions"));
+    scale(out.at(-1), ramp(ch, -0.08, 0.08), "−8% or worse in 90 days earns 0, +8% or better earns 1, so a 1–2% wobble barely moves it");
   }
 
   // 7. Analyst view
   const tg = a.targets || {}, tMid = isNum(tg.median) ? tg.median : tg.mean;
   if (isNum(tMid) && isNum(q.price)) {
     const up = tMid / q.price - 1;
-    const st = up > 0.15 ? "good" : up > 0 ? "ok" : "bad";
+    const drop = sharpDrop(d), stale = drop && up > 0;
+    const st = stale ? "ok" : up > 0.15 ? "good" : up > 0 ? "ok" : "bad";
     const rating = (a.recommendationKey || "").replace("_", " ");
-    out.push(sig("analysts", "Analyst view", st, { good: "Upside", ok: "Modest upside", bad: "Below target" }[st], `${pct(up, { sign: true })} to target`,
+    out.push(sig("analysts", "Analyst view", st, stale ? "Upside, but stale" : { good: "Upside", ok: "Modest upside", bad: "Below target" }[st], `${pct(up, { sign: true })} to target`,
       `${a.count ?? "Several"} analysts' middle (median) 12-month target is ${price(tMid)}, ${pct(Math.abs(up))} ${up >= 0 ? "above" : "below"} today's price` +
-        `${rating ? `; consensus rating "${rating}"` : ""}. Targets follow sentiment, so use this as a mood check, not a forecast.`, "priceTarget"));
+        `${rating ? `; consensus rating "${rating}"` : ""}. Targets follow sentiment, so use this as a mood check, not a forecast.` +
+        (stale ? ` The price fell ${pct(-drop.change, { digits: 0 })} in the last month, and most targets were set before that. Until analysts update them, the gap overstates the upside.` : ""), "priceTarget"));
+    const ap = ramp(up, -0.1, 0.3);
+    scale(out.at(-1), stale ? Math.min(ap, 0.5) : ap, `10% or more below target earns 0, 30% or more upside earns 1${stale ? "; capped at ½ after a sharp drop, since the targets lag it" : ""}`);
   }
 
   // 8. Price trend
@@ -242,9 +285,10 @@ export function equitySignals(d) {
         ok: `Slightly below its 200-day average (${pct(vs, { sign: true })}). The trend has cooled.`,
         bad: `Well below its 200-day average (${pct(vs, { sign: true })}). The market has been selling. That can be a bargain if the business is sound, or a warning if it isn't. The other signals help you tell which.`,
       }[st], "ma200"));
+    scale(out.at(-1), ramp(vs, -0.2, 0.1), "20% or more below the 200-day average earns 0, 10% or more above earns 1");
   }
 
-  return out;
+  return weigh(out, "equity");
 }
 
 export function fundSignals(d, watchSymbols = []) {
@@ -256,6 +300,7 @@ export function fundSignals(d, watchSymbols = []) {
     const per10k = f.expenseRatio * 10000;
     out.push(sig("cost", "Cost", st, { good: "Very cheap", ok: "Reasonable", bad: "Expensive" }[st], `${pct(f.expenseRatio, { digits: 2 })} / yr`,
       `Costs about $${per10k.toFixed(per10k < 10 ? 0 : 0)} a year per $10,000 invested${isNum(f.categoryExpenseRatio) ? ` vs ~$${Math.round(f.categoryExpenseRatio * 10000)} for similar funds` : ""}. Low fees leave more of the return for you.`, "expenseRatio"));
+    scale(out.at(-1), ramp(f.expenseRatio, 0.0075, 0.0005), "0.75% a year or more earns 0, 0.05% or less earns 1");
   }
 
   if (isNum(f.trailingPE)) {
@@ -266,6 +311,7 @@ export function fundSignals(d, watchSymbols = []) {
         ok: "A bit above average, which is normal in a growing economy.",
         bad: "Expensive by historical standards. Future returns may be lower than the last decade's, though markets can stay pricey for years. Investing a fixed amount regularly (dollar-cost averaging) softens timing risk.",
       }[st]}`, "pe"));
+    scale(out.at(-1), ramp(f.trailingPE, 28, 15), "P/E 28 or higher earns 0, 15 or lower earns 1");
   }
 
   const h = f.holdings || [];
@@ -276,12 +322,14 @@ export function fundSignals(d, watchSymbols = []) {
     const ov = overlap.length ? ` Note: you already follow ${[...new Set(overlap.map((x) => x.symbol.replace("GOOGL", "GOOG")))].join(" and ")}, which ${overlap.length > 1 ? "are" : "is"} also in this fund.` : "";
     out.push(sig("concentration", "Diversification", st, { good: "Broad", ok: "Top-heavy", bad: "Concentrated" }[st], `Top 10 = ${pct(top, { digits: 0 })}`,
       `The 10 largest holdings make up ${pct(top, { digits: 0 })} of the fund.${st !== "good" ? " Big tech drives a large share of its moves." : ""}${ov}`, "concentration"));
+    scale(out.at(-1), ramp(top, 0.55, 0.2), "top 10 at 55% or more earns 0, 20% or less earns 1");
   }
 
   if (isNum(f.fiveYearReturn)) {
     const st = f.fiveYearReturn >= 0.08 ? "good" : f.fiveYearReturn >= 0.04 ? "ok" : "bad";
     out.push(sig("returns", "Long-term returns", st, { good: "Strong", ok: "Modest", bad: "Weak" }[st], `${pct(f.fiveYearReturn)} / yr (5y)`,
       `Averaged ${pct(f.fiveYearReturn)} a year over 5 years${isNum(f.threeYearReturn) ? ` and ${pct(f.threeYearReturn)} over 3 years` : ""}. The stock market's very long-run average is about 10% a year. Past returns don't predict future ones.`, "indexFund"));
+    scale(out.at(-1), ramp(f.fiveYearReturn, 0, 0.12), "0% a year or less earns 0, 12% or more earns 1");
   }
 
   if (isNum(q.ma200) && isNum(q.price)) {
@@ -290,23 +338,29 @@ export function fundSignals(d, watchSymbols = []) {
     out.push(sig("trend", "Price trend", st, { good: "Uptrend", ok: "Soft", bad: "Downtrend" }[st], `${pct(vs, { sign: true })} vs 200-day avg`,
       st === "good" ? "The market is above its 200-day average: the longer-term trend is up."
         : "The market is below its 200-day average. Long-term index investors have historically done well buying during dips.", "ma200"));
+    scale(out.at(-1), ramp(vs, -0.2, 0.1), "20% or more below the 200-day average earns 0, 10% or more above earns 1");
   }
 
-  return out;
+  return weigh(out, "fund");
 }
 
+// Score out of 100 = sum of (check's 0–1 × its weight) ÷ sum of weights of the checks we could judge.
+// Checks without `pts`/`weight` (e.g. the dividend safety checks) count green 1, amber ½, red 0, weight 1.
 export function overall(signals) {
   const scored = signals.filter((s) => s.status !== "na");
   if (!scored.length) return { score: null, lean: "Not enough data", short: "No score", tone: "na" };
-  const pts = scored.reduce((t, s) => t + (s.status === "good" ? 1 : s.status === "ok" ? 0.5 : 0), 0);
-  const score = Math.round((pts / scored.length) * 100);
+  const ptsOf = (s) => (isNum(s.pts) ? s.pts : s.status === "good" ? 1 : s.status === "ok" ? 0.5 : 0);
+  const wOf = (s) => s.weight ?? 1;
+  const earned = scored.reduce((t, s) => t + ptsOf(s) * wOf(s), 0);
+  const possible = scored.reduce((t, s) => t + wOf(s), 0);
+  const score = Math.round((earned / possible) * 100);
   const good = scored.filter((s) => s.status === "good").length;
   const bad = scored.filter((s) => s.status === "bad").length;
   const lean = score >= 70 ? "Looks strong" : score >= 45 ? "Mixed picture" : "Proceed with caution";
   const tone = score >= 70 ? "good" : score >= 45 ? "ok" : "bad";
   // short: the same verdict in one word, for the home cards
   const short = { good: "Strong", ok: "Mixed", bad: "Caution" }[tone];
-  return { score, lean, short, tone, good, bad, total: scored.length };
+  return { score, lean, short, tone, good, bad, total: scored.length, earned, possible, weighted: scored.some((s) => isNum(s.pts)) };
 }
 
 // ------------------------------------------------------------------ narratives
@@ -1520,9 +1574,10 @@ export function walkSteps(d, { signals = [], bench } = {}) {
   const good = signals.filter((s) => s.status === "good").map((s) => s.label.toLowerCase());
   const bad = signals.filter((s) => s.status === "bad").map((s) => s.label.toLowerCase());
   add({ id: "score", tab: "summary", area: "verdict", title: "Start with the quick read",
-    what: `This card runs ${signals.length} simple checks and tallies them into a score out of 100. Think of it as a map of where to look, not a buy-or-sell call. The next slides go through the checks one at a time.`,
+    what: `This card runs ${signals.length} simple checks and weighs them into a score out of 100. Each check earns 0 to 1 on a sliding scale, and the business checks (price vs growth, sales, margins, debt) count more than the mood checks (analyst targets, price trend). Think of it as a map of where to look, not a buy-or-sell call. The next slides go through the checks one at a time.`,
     says: [ov.score != null ? `${name} scores **${ov.score}** (${ov.lean.toLowerCase()}): ${ov.good} of ${ov.total} checks pass${ov.bad ? ` and ${ov.bad} fail` : ""}.` : null,
-      good.length ? `Strong: ${list(good)}.` : null, bad.length ? `Worth a closer look: ${list(bad)}.` : null] });
+      good.length ? `Strong: ${list(good)}.` : null, bad.length ? `Worth a closer look: ${list(bad)}.` : null,
+      sharpDrop(d) ? `But the price is **down ${pct(-sharpDrop(d).change, { digits: 0 })} in a month**. The checks lag news like that, so check the News tab before trusting the score.` : null] });
 
   // the price
   const dates = d.prices?.dates || [], close = d.prices?.close || [];
@@ -1620,7 +1675,7 @@ export function fingerprint(d, score) {
   const sc = ratingScore((a.summary || []).find((r) => r.period === "0m"));
   const maxDate = (xs) => xs.reduce((m, x) => (x && x > m ? x : m), "");
   return {
-    at: d.updated, seen: new Date().toISOString(), price: d.quote?.price ?? null, score: score ?? null,
+    at: d.updated, seen: new Date().toISOString(), price: d.quote?.price ?? null, score: score ?? null, sv: SCORE_VERSION,
     eps1y: estRow(e.epsTrend, "+1y").current ?? null, tmed: a.targets?.median ?? a.targets?.mean ?? null,
     net: sc?.net ?? null, lastAction: maxDate((a.actions || []).map((x) => x.date)) || null,
     report: maxDate((e.history || []).map((x) => x.date)) || null, filing: d.filing?.filed || null,
@@ -1666,6 +1721,6 @@ export function changesSince(d, b, score) {
   } else if (isNum(now.er) && isNum(b.er) && Math.abs(now.er - b.er) >= 0.00005) {
     out.push({ tone: now.er < b.er ? "good" : "bad", text: `Fee ${now.er < b.er ? "cut" : "raised"} to ${pct(now.er, { digits: 2 })}`, tab: "summary" });
   }
-  if (isNum(now.score) && isNum(b.score) && now.score !== b.score) out.push({ tone: now.score > b.score ? "good" : "bad", text: `Checklist score ${b.score} → ${now.score}`, tab: "summary" });
+  if (isNum(now.score) && isNum(b.score) && now.score !== b.score && b.sv === now.sv) out.push({ tone: now.score > b.score ? "good" : "bad", text: `Checklist score ${b.score} → ${now.score}`, tab: "summary" });
   return out;
 }

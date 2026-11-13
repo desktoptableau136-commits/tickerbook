@@ -70,7 +70,7 @@ export const GLOSSARY = {
     short: "The average forecast from all analysts covering the stock.",
     what: "Each analyst publishes EPS and revenue forecasts. The consensus is their average.",
     why: "It's the bar the company is measured against each quarter.",
-    rule: "More analysts = a more reliable consensus. A wide low-to-high range means analysts disagree.",
+    rule: "More analysts = a more reliable consensus. A wide low-to-high range means analysts disagree. After a sharp drop, targets lag: most were set at the old price, so the gap overstates the upside until analysts update them.",
   },
   estimateRevisions: {
     term: "Estimate revisions",

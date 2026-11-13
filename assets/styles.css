@@ -815,6 +815,7 @@ html.dash-on .dash-valuation .method[open] { grid-column: 1 / -1; }
 .chg.up .ic { color: var(--up-text); } .chg.down .ic { color: var(--down-text); }
 .chg.good .ic { color: var(--good); } .chg.bad .ic { color: var(--bad); } .chg.note .ic { color: var(--muted); }
 .changes-x { margin-left: auto; }
+.drop-badge { flex: none; white-space: nowrap; height: 20px; padding: 0 8px; border-radius: 999px; display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 700; color: var(--ink); background: color-mix(in srgb, var(--bad) 22%, transparent); }
 .new-badge { flex: none; white-space: nowrap; height: 20px; padding: 0 8px; border-radius: 999px; display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 700; color: #fff; background: var(--accent); }
 
 /* price chart toggles + drops */
