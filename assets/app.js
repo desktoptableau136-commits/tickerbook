@@ -384,7 +384,9 @@ function tickerCard(d, tag) {
     ? h("span", { class: "muted" }, `Index fund · ${A.pct(d.fund?.expenseRatio, { digits: 2 })} fee`)
     : h("span", { class: "muted" }, days != null && days >= 0 ? `Earnings in ${days}d` : `1Y ${A.pct(y1, { sign: true })}`);
   const news = unseenChanges(d), drop = A.sharpDrop(d);
-  return h("a", { class: "card tcard", href: `#/t/${d.symbol}`, "aria-label": `${d.symbol}, ${A.price(d.quote.price)}, ${ov.lean}${news.length ? `, ${news.length} changes since you last looked` : ""}` },
+  // border takes the score ring's color (same mapping as scoreRing); no score keeps the plain border
+  const tone = ov.score == null ? "" : ov.tone === "good" ? " tone-good" : ov.tone === "ok" ? " tone-warn" : " tone-bad";
+  return h("a", { class: `card tcard${tone}`, href: `#/t/${d.symbol}`, "aria-label": `${d.symbol}, ${A.price(d.quote.price)}, ${ov.lean}${news.length ? `, ${news.length} changes since you last looked` : ""}` },
     h("div", { class: "tcard-head" },
       logo(d.symbol, d.name),
       h("div", { class: "grow" },
