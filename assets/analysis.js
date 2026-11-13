@@ -155,6 +155,11 @@ const weigh = (out, kind) => out.map((s) => {
 // Bump when the formula changes, so "since your last visit" doesn't report a formula change as news.
 export const SCORE_VERSION = 5;
 
+// Ideas (d.lite) have no data for some checks. Each counts as neutral (½ of its points) rather than
+// dropping out, so a company isn't scored on its best-looking checks alone.
+const unknownSig = (key, label, term, what) => scale(sig(key, label, "ok", "Unknown", "needs research",
+  `Ideas don't have the data for this check: ${what}. Until you research it, it counts as neutral, half its points, so a high score has to come from what we can see.`, term), 0.5, "unknown until researched, so neutral: ½");
+
 export function equitySignals(d) {
   const v = d.valuation || {}, f = d.fundamentals || {}, q = d.quote || {}, a = d.analysts || {};
   const out = [];
@@ -188,9 +193,15 @@ export function equitySignals(d) {
       : `Trading at ${times(fpe)} next year's expected earnings${gTxt}. ${meaning}${doubt ? "" : low}`;
     if (doubt) text += ` Treat that with caution: ${doubt.why}. So the price-vs-growth reading counts as neutral at most.`;
     // Second reading: today's price vs the fair-value methods' average (see fairValueGap).
-    // Ideas (d.lite) have no statements to run the fair-value methods on, so they get the PEG reading alone.
+    // Ideas (d.lite) have no statements to run the fair-value methods on, so that half counts as neutral (½).
     const fv = d.lite ? null : fairValueGap(d);
     let pts = vp, rule = vRule, status = st, mixed = false, fvTxt = "";
+    if (d.lite) {
+      pts = (vp + 0.5) / 2;
+      status = pts >= 0.65 ? "good" : pts >= 0.4 ? "ok" : "bad";
+      text += " The second reading, today's price vs the fair-value methods, needs a full research fetch, so it counts as neutral for now.";
+      rule = `two readings averaged: price vs growth (${vRule}; here ${vp.toFixed(2)}) and price vs the fair-value methods, unknown until researched, so neutral (0.50)`;
+    }
     if (fv) {
       const gp = ramp(fv.gap, -0.3, 0.3), wide = fv.spread >= 1.6;
       const gst = fv.gap >= 0.15 ? "good" : fv.gap > -0.15 ? "ok" : "bad";
@@ -282,7 +293,8 @@ export function equitySignals(d) {
   // 5. Earnings track record
   const { n, beats } = lastQuarterBeats(d);
   const nl = newListing(d);
-  if (n && n < 4) {
+  if (d.lite) out.push(unknownSig("track", "Earnings record", "epsSurprise", "whether it beat analysts' earnings estimates in the last 4 quarters"));
+  else if (n && n < 4) {
     out.push(sig("track", "Earnings record", "na", "Too new to judge", `${beats} of ${n} beat${n === 1 ? "" : "s"}`,
       `Beat analyst EPS estimates in ${beats} of ${n} quarter${n === 1 ? "" : "s"}${nl ? " since listing" : ""}. That's too few to call a track record (this check needs 4), and early estimates for a new company are often set low.`, "epsSurprise"));
   } else if (n) {
@@ -299,7 +311,8 @@ export function equitySignals(d) {
   // 6. Estimate momentum
   const t1 = estRow(d.earnings?.epsTrend, "+1y");
   const r1 = estRow(d.earnings?.epsRevisions, "+1y");
-  if (nl && isNum(t1.current) && isNum(t1["90daysAgo"]) && t1["90daysAgo"] !== 0) {
+  if (d.lite) out.push(unknownSig("revisions", "Estimate trend", "estimateRevisions", "whether analysts have been raising or cutting next year's earnings estimate"));
+  else if (nl && isNum(t1.current) && isNum(t1["90daysAgo"]) && t1["90daysAgo"] !== 0) {
     const ch = t1.current / t1["90daysAgo"] - 1;
     out.push(sig("revisions", "Estimate trend", "na", "Too new to judge", `${pct(ch, { sign: true })} in 90 days`,
       `Next year's EPS estimate has moved ${pct(ch, { sign: true })} over 90 days (to ${price(t1.current)}). For a company that listed ${nl.months} month${nl.months === 1 ? "" : "s"} ago, big moves like this are mostly analysts' first estimates settling as they learn the business, not news about it, so this check waits until it's been public for 2 years.`, "estimateRevisions"));
@@ -1894,10 +1907,10 @@ export function changesSince(d, b, score) {
 
 // An idea from data/_ideas.json, shaped like a watchlist ticker's data so equitySignals() runs the
 // same checks on it. Ideas only have Yahoo's summary numbers: no earnings history, estimate trend or
-// statements, so the earnings record and estimate trend are skipped and the valuation check reads
-// price vs growth (PEG) alone. `via`: the watchlist ticker it's a neighbor of; its peers (and it)
+// statements, so the earnings record, estimate trend and the fair-value half of the price check
+// count as neutral (½) until researched. `via`: the watchlist ticker it's a neighbor of; its peers (and it)
 // are the idea's industry for the profitability comparison.
-export const IDEA_CHECKS = 6;
+export const IDEA_UNKNOWN = "the earnings record, the estimate trend and the fair-value half of the price check";
 export function ideaData(x, via) {
   const peers = via ? [...(via.peers?.list || []), { symbol: via.symbol, operatingMargin: via.fundamentals?.operatingMargin }] : [];
   return {

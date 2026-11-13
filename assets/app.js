@@ -394,7 +394,7 @@ function ideasNew(list) {
   return seen ? new Set(list.map((i) => i.x.symbol).filter((s) => !seen.includes(s))) : new Set();
 }
 const ideaSource = (i) => [i.x.sources.includes("neighbor") ? `Neighbor of ${i.x.via.join(", ")}` : null, i.x.sources.includes("screen") ? "Broad screen" : null].filter(Boolean).join(" · ");
-const quickTip = (ov) => `${ov.lean}: ${ov.good} of ${ov.total} checks positive${ov.bad ? `, ${ov.bad} negative` : ""}. A quick score on ${A.IDEA_CHECKS} of the 8 checks your watchlist gets (no earnings record or estimate trend yet, and price is judged on growth alone). Research it for the full score.`;
+const quickTip = (ov) => `${ov.lean}: ${ov.good} of ${ov.total} checks positive${ov.bad ? `, ${ov.bad} negative` : ""}. A quick score: the same 8 checks as your watchlist, but ${A.IDEA_UNKNOWN} need a full research fetch, so they count as neutral (half points) for now.`;
 
 function researchBtn(sym, cls = "btn sm primary") {
   return GH.connected()
@@ -447,7 +447,7 @@ function renderIdeas() {
         h("ul", { class: "small ink2 ideas-rules" }, (sc.rules || []).map((r) => h("li", {}, r))),
         sc.ok === false ? h("p", { class: "notice bad small" }, "Yahoo's screen didn't answer in the last update, so these are the previous results.") : null),
       h("div", {}, h("h4", {}, "The quick score"),
-        h("p", { class: "small ink2" }, `The same checks and weights as your watchlist, on the ${A.IDEA_CHECKS} it has numbers for: price vs growth, sales growth, profitability, debt, analyst targets and price trend. Without a full data fetch there's no earnings record or estimate trend, and price is judged on the PEG alone. So it's a first filter. Research a company to get the full score.`),
+        h("p", { class: "small ink2" }, `The same 8 checks and weights as your watchlist. Without a full data fetch there's no data for ${A.IDEA_UNKNOWN}, so those count as neutral, half their points: a company can't score high on its best-looking checks alone. So it's a first filter. Research a company to get the full score.`),
         h("p", { class: "small ink2" }, "Every company is held to the same rules; nothing is added or left out by name. Screens like this favor companies whose recent numbers look good, and recent numbers don't predict the future."))));
 
   const chips = h("div", { class: "chips", role: "group", "aria-label": "Filter by source" },
@@ -487,7 +487,7 @@ function openIdea(i) {
     h("h4", {}, "Quick score"),
     h("div", { class: "idea-score" }, scoreRing(ov, 64, 7),
       h("div", {}, h("b", {}, ov.lean), ov.score != null ? h("div", { class: "muted small tnum" }, `${fmtPts(ov.earned)} of ${fmtPts(ov.possible)} points = ${ov.score}`) : null,
-        h("p", { class: "muted small", style: "margin:4px 0 0" }, `${A.IDEA_CHECKS} of the 8 checks your watchlist gets. Research it for the earnings record, the estimate trend, and the fair-value methods on price.`))),
+        h("p", { class: "muted small", style: "margin:4px 0 0" }, `The same 8 checks as your watchlist, but ${A.IDEA_UNKNOWN} count as neutral until you research it.`))),
     i.via ? (() => {
       // quick scores run higher than full ones (the missing checks are often the hard ones), so compare like with like
       const q = A.overall(A.quickSignals(i.via)), full = A.overall(signalsFor(i.via));
