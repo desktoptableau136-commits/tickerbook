@@ -35,7 +35,7 @@ export const GLOSSARY = {
     short: "Is it cheap? Two readings of the price, averaged.",
     what: "First, price vs growth: the PEG ratio (forward P/E ÷ expected growth), or the forward P/E alone when growth is too fast to trust. Second, today's price vs the average of the Valuation tab's fair-value methods at their default assumptions, leaving out analyst targets because the analyst-view check already counts them.",
     why: "PEG only looks at next year's growth estimate. The fair-value methods also look at cash flow, similar companies and the company's own history. When the two disagree, it's a sign to look closer rather than trust either one.",
-    rule: "Price vs growth: PEG under 1.2 reasonable, 1.2–2 fair, over 2 pricey. Price vs fair value: 15% or more below the average is cheap, within 15% fair, 15% or more above pricey. Each earns 0 to 1 and they're averaged; when the methods disagree a lot (highest ÷ lowest 1.6 or more) the fair-value side counts a third. Together, 0.65 or more reads reasonable, 0.4 to 0.65 fair, under 0.4 pricey, and opposite readings say \"Mixed signals\". Debt over 3.5× EBITDA caps it at fair.",
+    rule: "Price vs growth: PEG under 1.2 reasonable, 1.2–2 fair, over 2 pricey. Price vs fair value: 15% or more below the average is cheap, within 15% fair, 15% or more above pricey. Each earns 0 to 1 and they're averaged; when the methods disagree a lot (highest ÷ lowest 1.6 or more) the fair-value side counts a third. Together, 0.65 or more reads reasonable, 0.4 to 0.65 fair, under 0.4 pricey, and opposite readings say \"Mixed signals\". Debt over 3.5× EBITDA caps it at fair, and so do very unsure estimates (highest minus lowest more than 75% of the average, or a forward P/E under 6) for the price-vs-growth reading.",
   },
   eps: {
     term: "EPS (earnings per share)",
@@ -84,7 +84,7 @@ export const GLOSSARY = {
     short: "Whether analysts are raising or cutting their forecasts.",
     what: "How the consensus EPS estimate has changed over the last 7–90 days, and how many analysts moved up vs down.",
     why: "Rising estimates are one of the more reliable positive signals. It means the business is doing better than people thought.",
-    rule: "Estimates going up while the stock goes sideways can be an opportunity. Falling estimates are a warning, even if the stock looks cheap. For a stock listed in the last 2 years it isn't judged: early estimates swing while analysts learn the business.",
+    rule: "Estimates going up while the stock goes sideways can be an opportunity. Falling estimates are a warning, even if the stock looks cheap. For a stock listed in the last 2 years it isn't judged: early estimates swing while analysts learn the business. When next year's estimates are very unsure (highest minus lowest is more than 75% of the average, or the forward P/E is under 6), it counts as neutral at most.",
   },
   revenue: {
     term: "Revenue (sales)",
@@ -98,7 +98,7 @@ export const GLOSSARY = {
     short: "How much sales grew vs the same period a year ago.",
     what: "(This quarter's revenue ÷ same quarter last year) − 1. YoY = year over year.",
     why: "The clearest sign of whether demand for the company's products is expanding.",
-    rule: "Over 15% is fast for a large company · 5–15% is solid · under 0% means the business is shrinking.",
+    rule: "Over 15% is fast for a large company · 5–15% is solid · under 0% means the business is shrinking. For a year after a big acquisition (one quarter's revenue jumps 8+ points above its usual pace while debt jumps 10%+), the score uses growth in the last full year before the deal, since bought revenue isn't the same as more customers. Companies that buy many small businesses don't show a jump like that, so they're scored as reported.",
   },
   grossMargin: {
     term: "Gross margin",

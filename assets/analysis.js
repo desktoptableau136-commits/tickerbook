@@ -153,7 +153,7 @@ const weigh = (out, kind) => out.map((s) => {
   return { ...s, weight: SCORE_WEIGHTS[kind][s.key] ?? 1, part: p?.id, partLabel: p?.label, partAbout: p?.about };
 });
 // Bump when the formula changes, so "since your last visit" doesn't report a formula change as news.
-export const SCORE_VERSION = 4;
+export const SCORE_VERSION = 5;
 
 export function equitySignals(d) {
   const v = d.valuation || {}, f = d.fundamentals || {}, q = d.quote || {}, a = d.analysts || {};
@@ -168,7 +168,9 @@ export function equitySignals(d) {
     out.push(sig("valuation", "Valuation", "na", "Unclear", "—",
       "No meaningful forward P/E (expected earnings are negative or missing), so we can't judge price against profit.", "forwardPE"));
   } else {
-    const st = !isNum(peg) ? (fpe < 18 ? "good" : fpe < 30 ? "ok" : "bad") : peg < 1.2 ? "good" : peg < 2 ? "ok" : "bad";
+    const doubt = estimateDoubt(d);
+    const st0 = !isNum(peg) ? (fpe < 18 ? "good" : fpe < 30 ? "ok" : "bad") : peg < 1.2 ? "good" : peg < 2 ? "ok" : "bad";
+    const st = doubt && st0 === "good" ? "ok" : st0;
     const gTxt = isNum(g) && g > 0 && !wild ? ` with about ${pct(g, { digits: 0 })} expected yearly earnings growth` : "";
     const meaning = wild ? {
       good: "That's low for any company.", ok: "That's above the long-run market average of about 16–18.", bad: "That's expensive: the price already assumes years of very fast growth.",
@@ -179,11 +181,12 @@ export function equitySignals(d) {
     }[st];
     const low = fpe < 6 ? " A forward P/E this low is unusual; it often means the market doubts the estimates." : "";
     const lev = leverage(d), heavy = !!(lev && lev.ratio > 3.5);
-    const vp = isNum(peg) ? ramp(peg, 2.5, 0.8) : ramp(fpe, 35, 14);
-    const vRule = isNum(peg) ? "PEG 2.5 or higher earns 0, 0.8 or lower earns 1" : "forward P/E 35 or higher earns 0, 14 or lower earns 1";
-    let text = heavy && st === "good"
+    const vp0 = isNum(peg) ? ramp(peg, 2.5, 0.8) : ramp(fpe, 35, 14), vp = doubt ? Math.min(vp0, 0.5) : vp0;
+    const vRule = (isNum(peg) ? "PEG 2.5 or higher earns 0, 0.8 or lower earns 1" : "forward P/E 35 or higher earns 0, 14 or lower earns 1") + (doubt ? ", capped at ½ while the estimates are this unsure" : "");
+    let text = heavy && st0 === "good"
       ? `Trading at only ${times(fpe)} next year's expected earnings${gTxt}, which looks cheap. But the company carries heavy debt (${num(lev.ratio, 1)}× EBITDA), so its earnings are riskier than the P/E suggests. Low prices on heavily indebted companies are often the market pricing in that risk.`
-      : `Trading at ${times(fpe)} next year's expected earnings${gTxt}. ${meaning}${low}`;
+      : `Trading at ${times(fpe)} next year's expected earnings${gTxt}. ${meaning}${doubt ? "" : low}`;
+    if (doubt) text += ` Treat that with caution: ${doubt.why}. So the price-vs-growth reading counts as neutral at most.`;
     // Second reading: today's price vs the fair-value methods' average (see fairValueGap).
     const fv = fairValueGap(d);
     let pts = vp, rule = vRule, status = st, mixed = false, fvTxt = "";
@@ -211,17 +214,27 @@ export function equitySignals(d) {
     out.push(scale(sig("valuation", "Valuation", status, word, `${times(fpe)} fwd P/E${isNum(peg) ? ` · PEG ${num(peg, 1)}` : ""}${fvTxt}`, text, "priceCheck"), pts, rule));
   }
 
-  // 2. Growth
-  const rg = f.revenueGrowth;
+  // 2. Growth. For a year after a big acquisition, reported growth includes bought revenue, so the
+  // check is scored on growth in the last full year before the deal instead (see acquisitionStep).
+  const rg = f.revenueGrowth, acq = acquisitionStep(d);
   if (isNum(rg)) {
-    const st = rg >= 0.1 ? "good" : rg >= 0.03 ? "ok" : "bad";
-    out.push(sig("growth", "Sales growth", st, { good: "Growing fast", ok: "Steady", bad: "Weak" }[st], `${pct(rg, { sign: true })} YoY`,
-      {
-        good: `Revenue grew ${pct(rg)} vs a year ago. Customers are spending more, which supports future profit growth.`,
-        ok: `Revenue grew ${pct(rg)} vs a year ago: positive but modest. Profit growth will lean on cost control or buybacks.`,
-        bad: `Revenue ${rg < 0 ? "fell" : "barely grew"} (${pct(rg, { sign: true })} vs a year ago). Shrinking or flat sales make it hard to grow profits long term.`,
-      }[st], "revenueGrowth"));
-    scale(out.at(-1), ramp(rg, -0.02, 0.15), "−2% or worse earns 0, +15% or better earns 1");
+    const g2 = acq ? acq.preGrowth : rg;
+    const st = g2 >= 0.1 ? "good" : g2 >= 0.03 ? "ok" : "bad";
+    const plain = {
+      good: `Revenue grew ${pct(g2)} vs a year ago. Customers are spending more, which supports future profit growth.`,
+      ok: `Revenue grew ${pct(g2)} vs a year ago: positive but modest. Profit growth will lean on cost control or buybacks.`,
+      bad: `Revenue ${g2 < 0 ? "fell" : "barely grew"} (${pct(g2, { sign: true })} vs a year ago). Shrinking or flat sales make it hard to grow profits long term.`,
+    }[st];
+    const text = acq
+      ? `Reported revenue is ${pct(rg, { sign: true })} vs a year ago, but that includes a large acquisition: in the quarter ending ${date(acq.period)}, revenue stepped up ${pct(acq.step, { digits: 0 })} in one quarter (its usual pace was about ${pct(acq.base, { sign: true })} a quarter) while debt jumped ${pct(acq.debtJump, { digits: 0 })}. Bought revenue isn't the same as more customers, so until a year has passed this check uses growth in the last full year before the deal: ${pct(g2, { sign: true })} (year ending ${date(acq.preYear)}). ${{
+          good: "Before the deal, the business was growing well on its own.",
+          ok: "Before the deal, the business was growing modestly on its own.",
+          bad: "Before the deal, sales were flat or shrinking, so the question is whether the purchase changes that.",
+        }[st]}`
+      : plain;
+    out.push(sig("growth", "Sales growth", st, { good: "Growing fast", ok: "Steady", bad: "Weak" }[st],
+      acq ? `${pct(rg, { sign: true })} YoY · ${pct(g2, { sign: true })} before the deal` : `${pct(rg, { sign: true })} YoY`, text, "revenueGrowth"));
+    scale(out.at(-1), ramp(g2, -0.02, 0.15), `−2% or worse earns 0, +15% or better earns 1${acq ? "; scored on the year before the acquisition, until a year has passed" : ""}`);
   }
 
   // 3. Profitability
@@ -291,15 +304,17 @@ export function equitySignals(d) {
       `Next year's EPS estimate has moved ${pct(ch, { sign: true })} over 90 days (to ${price(t1.current)}). For a company that listed ${nl.months} month${nl.months === 1 ? "" : "s"} ago, big moves like this are mostly analysts' first estimates settling as they learn the business, not news about it, so this check waits until it's been public for 2 years.`, "estimateRevisions"));
   } else if (isNum(t1.current) && isNum(t1["90daysAgo"]) && t1["90daysAgo"] !== 0) {
     const ch = t1.current / t1["90daysAgo"] - 1;
-    const st = ch > 0.01 ? "good" : ch > -0.01 ? "ok" : "bad";
+    const doubt = estimateDoubt(d);
+    const st0 = ch > 0.01 ? "good" : ch > -0.01 ? "ok" : "bad", st = doubt && st0 === "good" ? "ok" : st0;
     const rv = isNum(r1.upLast30days) ? ` In the last 30 days, ${r1.upLast30days} analysts raised and ${r1.downLast30days ?? 0} cut.` : "";
-    out.push(sig("revisions", "Estimate trend", st, { good: "Rising", ok: "Flat", bad: "Falling" }[st], `${pct(ch, { sign: true })} in 90 days`,
-      `Next year's EPS estimate has moved ${pct(ch, { sign: true })} over 90 days (to ${price(t1.current)}).${rv} ${{
+    out.push(sig("revisions", "Estimate trend", st, doubt && st0 === "good" ? "Rising, but unsure" : { good: "Rising", ok: "Flat", bad: "Falling" }[st0], `${pct(ch, { sign: true })} in 90 days`,
+      `Next year's EPS estimate has moved ${pct(ch, { sign: true })} over 90 days (to ${price(t1.current)}).${rv} ${doubt && st0 === "good" ? "" : {
         good: "Analysts keep finding the business better than expected, historically a good sign for the stock.",
         ok: "Expectations are stable.",
         bad: "Analysts are cutting forecasts. That pressure often weighs on the stock until it stops.",
-      }[st]}`, "estimateRevisions"));
-    scale(out.at(-1), ramp(ch, -0.08, 0.08), "−8% or worse in 90 days earns 0, +8% or better earns 1, so a 1–2% wobble barely moves it");
+      }[st0]}${doubt ? `${st0 === "good" ? "But" : " Also,"} ${doubt.why}, so a move like this says little about the business. It counts as neutral at most until the estimates settle.` : ""}`, "estimateRevisions"));
+    const rp = ramp(ch, -0.08, 0.08);
+    scale(out.at(-1), doubt ? Math.min(rp, 0.5) : rp, `−8% or worse in 90 days earns 0, +8% or better earns 1, so a 1–2% wobble barely moves it${doubt ? "; capped at ½ while the estimates are this unsure" : ""}`);
   }
 
   // 7. Analyst view
@@ -886,6 +901,39 @@ export function pastPEs(d) {
     if (isNum(close[i])) out.push({ period: y.period, price: close[i], eps: y.eps, pe: close[i] / y.eps });
   }
   return out;
+}
+
+// A big acquisition in the last 4 quarters: one quarter's revenue jumps 8+ points above the company's
+// usual pace (its last full year's growth, per quarter) in the same quarter debt jumps 10%+. Companies
+// that buy many small businesses don't show a step like that, so their growth is scored as reported.
+export function acquisitionStep(d) {
+  const q = (d.financials?.quarterly || []).filter((x) => isNum(x.revenue) && x.revenue > 0);
+  const debt = d.fundamentals?.debtByQuarter || [];
+  const years = (d.financials?.annual || []).filter((y) => isNum(y.revenue) && y.revenue > 0);
+  for (let j = q.length - 1; j >= Math.max(1, q.length - 4); j--) {
+    const before = years.filter((y) => y.period < q[j].period);
+    if (before.length < 2) continue;
+    const preGrowth = before.at(-1).revenue / before.at(-2).revenue - 1, base = Math.pow(1 + preGrowth, 0.25) - 1;
+    const step = q[j].revenue / q[j - 1].revenue - 1;
+    if (step - base < 0.08) continue;
+    const k = debt.findIndex((x) => x.period === q[j].period);
+    const d0 = debt[k - 1]?.debt, d1 = debt[k]?.debt;
+    if (k < 1 || !isNum(d0) || !isNum(d1) || d0 <= 0 || d1 / d0 - 1 < 0.1) continue;
+    return { period: q[j].period, step, base, preGrowth, preYear: before.at(-1).period, debtJump: d1 / d0 - 1 };
+  }
+  return null;
+}
+
+// Next year's EPS estimates too unsure to lean on: analysts spread wider than 75% of their average,
+// or a forward P/E under 6 (the market not believing them). Yahoo gives the average, not a median.
+export function estimateDoubt(d) {
+  const r = estRow(d.earnings?.epsEstimate, "+1y"), fpe = d.valuation?.forwardPE;
+  const spread = isNum(r.high) && isNum(r.low) && isNum(r.avg) && r.avg > 0 ? (r.high - r.low) / r.avg : null;
+  const wide = isNum(spread) && spread >= 0.75, lowPE = isNum(fpe) && fpe > 0 && fpe < 6;
+  if (!wide && !lowPE) return null;
+  const range = wide ? `the ${r.numberOfAnalysts ?? "few"} analysts' estimates for next year's EPS run from ${price(r.low)} to ${price(r.high)} (average ${price(r.avg)}), far apart` : null;
+  const pe = lowPE ? `a forward P/E under 6 (${times(fpe)}) usually means the market doesn't believe the estimates` : null;
+  return { spread, wide, lowPE, low: r.low, high: r.high, avg: r.avg, n: r.numberOfAnalysts, why: [range, pe].filter(Boolean).join(", and ") };
 }
 
 // Today's price vs the average of the fair-value methods at their default assumptions. Analyst
