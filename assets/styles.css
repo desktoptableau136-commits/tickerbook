@@ -201,11 +201,11 @@ main { max-width: 1180px; margin: 0 auto; padding: 16px var(--gutter) 96px; }
 .tcard { display: block; color: inherit; cursor: pointer; transition: border-color .15s, transform .15s; }
 .tcard:hover { text-decoration: none; border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .tcard:active { transform: scale(0.99); }
-/* home cards are outlined in their score ring's color; hover thickens it instead of switching to accent */
-.tcard.tone-good { --tone: var(--good); }
-.tcard.tone-warn { --tone: var(--warn); }
-.tcard.tone-bad { --tone: var(--bad); }
-.tcard[class*="tone-"], .tcard[class*="tone-"]:hover { border-color: var(--tone); }
+/* home and Ideas cards are outlined in their score ring's color; on home cards hover thickens it instead of switching to accent */
+.card.tone-good { --tone: var(--good); }
+.card.tone-warn { --tone: var(--warn); }
+.card.tone-bad { --tone: var(--bad); }
+.card[class*="tone-"], .tcard[class*="tone-"]:hover { border-color: var(--tone); }
 .tcard[class*="tone-"]:hover { box-shadow: var(--shadow), inset 0 0 0 1px var(--tone); }
 .tcard-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .tcard-sym { font-size: 18px; font-weight: 750; letter-spacing: -0.01em; }
@@ -1032,6 +1032,12 @@ html.dash-on .dash-dividends .tiles, html.dash-on .dash-divfund .tiles { grid-te
 .ideas-grid > .extra { display: none; }
 .ideas-grid.all > .extra { display: flex; }
 .idea-score { display: flex; align-items: center; gap: 14px; }
+/* Ideas preview: a wide two-column dialog on laptops (summary left, checks right) */
+@media (min-width: 960px) {
+  .sheet.wide { width: min(900px, calc(100vw - 48px)); }
+  .idea-sheet { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 32px; align-items: start; }
+  .idea-sheet > .signals { margin-top: 0; }
+}
 .idea-actions { display: flex; gap: 8px; margin-top: 16px; }
 .idea-actions > * { flex: 1 1 0; }
 @media (min-width: 960px) { .ideas-how-body { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

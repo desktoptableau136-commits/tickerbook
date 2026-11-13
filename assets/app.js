@@ -384,9 +384,7 @@ function tickerCard(d, tag) {
     ? h("span", { class: "muted" }, `Index fund · ${A.pct(d.fund?.expenseRatio, { digits: 2 })} fee`)
     : h("span", { class: "muted" }, days != null && days >= 0 ? `Earnings in ${days}d` : `1Y ${A.pct(y1, { sign: true })}`);
   const news = unseenChanges(d), drop = A.sharpDrop(d);
-  // border takes the score ring's color (same mapping as scoreRing); no score keeps the plain border
-  const tone = ov.score == null ? "" : ov.tone === "good" ? " tone-good" : ov.tone === "ok" ? " tone-warn" : " tone-bad";
-  return h("a", { class: `card tcard${tone}`, href: `#/t/${d.symbol}`, "aria-label": `${d.symbol}, ${A.price(d.quote.price)}, ${ov.lean}${news.length ? `, ${news.length} changes since you last looked` : ""}` },
+  return h("a", { class: `card tcard${toneClass(ov)}`, href: `#/t/${d.symbol}`, "aria-label": `${d.symbol}, ${A.price(d.quote.price)}, ${ov.lean}${news.length ? `, ${news.length} changes since you last looked` : ""}` },
     h("div", { class: "tcard-head" },
       logo(d.symbol, d.name),
       h("div", { class: "grow" },
@@ -445,7 +443,7 @@ function researchBtn(sym, cls = "btn sm primary") {
 
 function ideaCard(i, isNew, hidden) {
   const { x, ov } = i;
-  return h("section", { class: "card icard" },
+  return h("section", { class: `card icard${toneClass(ov)}` },
     h("div", { class: "tcard-head" },
       logo(x.symbol, x.name),
       h("div", { class: "grow" },
@@ -522,7 +520,8 @@ function openIdea(i) {
     h("summary", {}, h("span", { class: "lbl" }, s.label), h("span", { class: "val" }, s.value), pill(s.status, s.word)),
     h("div", { class: "body" }, h("p", {}, s.text), signalMath(s, ov), s.term ? h("button", { class: "linkish small", type: "button", on: { click: () => openTerm(s.term) } }, `What's ${GLOSSARY[s.term].term}?`) : null));
   const facts = [x.industry, isNum(x.marketCap) ? `worth ${A.money(x.marketCap)}` : null, isNum(x.price) ? `${A.price(x.price)} a share` : null].filter(Boolean).join(" · ");
-  openSheet((s) => s.append(sheetHead(`${x.symbol} · ${x.name}`),
+  // wide on laptops: the story and score on the left, the checks on the right, so it fits without much scrolling
+  openSheet((s) => s.append(sheetHead(`${x.symbol} · ${x.name}`), h("div", { class: "idea-sheet" }, h("div", {},
     h("p", { class: "muted small", style: "margin-top:0" }, facts),
     h("p", { class: "small" }, rich(A.ideaWhy(x, i.via))),
     x.about ? h("div", {}, h("h4", {}, "What it does"), h("p", { class: "ink2 small" }, x.about), h("p", { class: "muted small" }, "Yahoo Finance's company description, shortened.")) : "",
@@ -534,11 +533,11 @@ function openIdea(i) {
       // quick scores run higher than full ones (the missing checks are often the hard ones), so compare like with like
       const q = A.overall(A.quickSignals(i.via)), full = A.overall(signalsFor(i.via));
       return q.score != null ? h("p", { class: "small ink2" }, rich(`For comparison, ${i.via.symbol} scores **${q.score}** on this same quick check (${full.score ?? "—"} on its full one).`)) : null;
-    })() : null,
-    h("div", { class: "signals" }, sig.map(row)),
+    })() : null),
+    h("div", { class: "signals one" }, sig.map(row))),
     h("div", { class: "idea-actions" }, researchBtn(x.symbol, "btn primary"),
       h("button", { class: "btn", type: "button", on: { click: () => { ideasHide(x.symbol, true); closeSheet(); route(); } } }, "Hide")),
-    h("p", { class: "disclaimer" }, "A starting point for research, not a recommendation. Not financial advice.")));
+    h("p", { class: "disclaimer" }, "A starting point for research, not a recommendation. Not financial advice.")), { cls: "wide" });
 }
 
 // ================================================================ ticker page
@@ -760,10 +759,16 @@ function priceCard(d) {
 }
 
 // The checklist score as a ring filled to the score, in its status color (always shown with the word nearby).
+// Card border class matching scoreRing's color; no score keeps the plain border.
+function toneClass(ov) {
+  return ov.score == null ? "" : ov.tone === "good" ? " tone-good" : ov.tone === "ok" ? " tone-warn" : " tone-bad";
+}
+
 function scoreRing(ov, size = 76, stroke = 8, cls = "") {
   const r = (size - stroke) / 2, c = size / 2, C = 2 * Math.PI * r;
   const color = ov.tone === "good" ? "good" : ov.tone === "ok" ? "warn" : "bad";
-  return h("div", { class: `score-ring ${cls}`, role: "img", "aria-label": ov.score != null ? `Score ${ov.score} out of 100` : "No score yet" },
+  // the box matches the drawn size so the number stays centered at any size (CSS defaults are 76px / 40px)
+  return h("div", { class: `score-ring ${cls}`, style: `width:${size}px;height:${size}px`, role: "img", "aria-label": ov.score != null ? `Score ${ov.score} out of 100` : "No score yet" },
     h("div", { html: `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true"><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="var(--surface-2)" stroke-width="${stroke}"/>${ov.score ? `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="var(--${color})" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${(C * ov.score) / 100} ${C}"/>` : ""}</svg>` }),
     h("div", { class: "val tnum" }, ov.score ?? "—"));
 }
@@ -1950,10 +1955,10 @@ function renderSettings() {
 
 // ================================================================ sheets
 let sheetEl = null;
-function openSheet(build, { onClose } = {}) {
+function openSheet(build, { onClose, cls = "" } = {}) {
   closeSheet();
   const backdrop = h("div", { class: "backdrop", on: { click: () => closeSheet() } });
-  const sheet = h("div", { class: "sheet", role: "dialog", "aria-modal": "true" }, h("div", { class: "grab", "aria-hidden": "true" }));
+  const sheet = h("div", { class: `sheet ${cls}`.trim(), role: "dialog", "aria-modal": "true" }, h("div", { class: "grab", "aria-hidden": "true" }));
   build(sheet);
   overlay.append(backdrop, sheet);
   sheetEl = { backdrop, sheet, onClose, prevFocus: document.activeElement };
