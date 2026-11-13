@@ -134,7 +134,24 @@ export const SCORE_WEIGHTS = {
   equity: { valuation: 2, growth: 1.5, profit: 1.5, health: 1.5, track: 1, revisions: 1, analysts: 0.75, trend: 0.75 },
   fund: { cost: 3, concentration: 2.5, returns: 2, valuation: 1.5, trend: 1 },
 };
-const weigh = (out, kind) => out.map((s) => ({ ...s, weight: SCORE_WEIGHTS[kind][s.key] ?? 1 }));
+// The same points split three ways, so a high total built on price or mood stands out from one
+// built on the business. Parts are sub-totals of the score, not separate scores.
+export const SCORE_PARTS = {
+  equity: [
+    { id: "business", label: "Business", about: "how the company itself is doing", keys: ["growth", "profit", "health", "track"] },
+    { id: "price", label: "Price", about: "what you pay for that business", keys: ["valuation"] },
+    { id: "mood", label: "Mood", about: "what analysts and the market think right now", keys: ["revisions", "analysts", "trend"] },
+  ],
+  fund: [
+    { id: "business", label: "Fund", about: "its fees, spread and long-run record", keys: ["cost", "concentration", "returns"] },
+    { id: "price", label: "Price", about: "what its companies cost", keys: ["valuation"] },
+    { id: "mood", label: "Mood", about: "where the market is heading lately", keys: ["trend"] },
+  ],
+};
+const weigh = (out, kind) => out.map((s) => {
+  const p = SCORE_PARTS[kind].find((x) => x.keys.includes(s.key));
+  return { ...s, weight: SCORE_WEIGHTS[kind][s.key] ?? 1, part: p?.id, partLabel: p?.label, partAbout: p?.about };
+});
 // Bump when the formula changes, so "since your last visit" doesn't report a formula change as news.
 export const SCORE_VERSION = 3;
 
@@ -369,7 +386,31 @@ export function overall(signals) {
   const tone = score >= 70 ? "good" : score >= 45 ? "ok" : "bad";
   // short: the same verdict in one word, for the home cards
   const short = { good: "Strong", ok: "Mixed", bad: "Caution" }[tone];
-  return { score, lean, short, tone, good, bad, total: scored.length, earned, possible, weighted: scored.some((s) => isNum(s.pts)) };
+  // Parts: each one's earned and possible points add up to the totals above.
+  const ids = ["business", "price", "mood"].filter((id) => signals.some((s) => s.part === id));
+  const parts = ids.map((id) => {
+    const all = signals.filter((s) => s.part === id), judged = all.filter((s) => s.status !== "na");
+    const e = judged.reduce((t, s) => t + ptsOf(s) * wOf(s), 0), p = judged.reduce((t, s) => t + wOf(s), 0);
+    return { id, label: all[0].partLabel, about: all[0].partAbout, checks: all, earned: e, possible: p, score: p ? Math.round((e / p) * 100) : null };
+  });
+  return { score, lean, short, tone, good, bad, total: scored.length, earned, possible, weighted: scored.some((s) => isNum(s.pts)), parts };
+}
+
+// One sentence on how the three parts compare, or null when there's nothing to point out.
+export function splitRead(ov) {
+  const P = Object.fromEntries((ov.parts || []).map((p) => [p.id, p.score]));
+  const { business: b, price: p, mood: m } = P;
+  if (!isNum(b) || ov.score == null) return null;
+  const bn = ov.parts.find((x) => x.id === "business").label.toLowerCase();
+  const others = [isNum(p) ? `price ${p}` : null, isNum(m) ? `mood ${m}` : null].filter(Boolean).join(", ");
+  if (b < 45 && ov.score >= 55) return `**The ${bn} part is the weak spot** (${b} of 100), and ${others ? `the price and mood checks (${others})` : "the other checks"} carry the total. Those can change quickly, so read the ${bn} checks first.`;
+  if (b < 45 && isNum(p) && p >= 70) return `**Cheap, but the ${bn} part is weak** (${bn} ${b}, price ${p}). A low price can be a warning rather than a bargain.`;
+  if (b >= 70 && isNum(p) && p < 40) return `**A strong business at a high price** (${bn} ${b}, price ${p}). Good companies can stay pricey for years; the question is how much growth the price already assumes.`;
+  if (isNum(p) && p < 40) return `**The price is the weak part** (price ${p}, ${bn} ${b}). You'd be paying a lot for what the ${bn} checks show, so returns depend on it doing better than expected.`;
+  if (b >= 70 && isNum(m) && m < 40) return `**The business looks strong, but the mood is sour** (${bn} ${b}, mood ${m}). Long-term investors sometimes find chances there, as long as the ${bn} checks hold up.`;
+  const all = [b, p, m].filter(isNum);
+  if (all.length > 1 && Math.max(...all) - Math.min(...all) <= 25) return `The three parts roughly agree (${bn} ${b}${others ? `, ${others}` : ""}).`;
+  return null;
 }
 
 // ------------------------------------------------------------------ narratives
@@ -1583,9 +1624,11 @@ export function walkSteps(d, { signals = [], bench } = {}) {
   const good = signals.filter((s) => s.status === "good").map((s) => s.label.toLowerCase());
   const bad = signals.filter((s) => s.status === "bad").map((s) => s.label.toLowerCase());
   add({ id: "score", tab: "summary", area: "verdict", title: "Start with the quick read",
-    what: `This card runs ${signals.length} simple checks and weighs them into a score out of 100. Each check earns 0 to 1 on a sliding scale, and the business checks (price vs growth, sales, margins, debt) count more than the mood checks (analyst targets, price trend). Think of it as a map of where to look, not a buy-or-sell call. The next slides go through the checks one at a time.`,
+    what: `This card runs ${signals.length} simple checks and weighs them into a score out of 100. Each check earns 0 to 1 on a sliding scale, and the business checks (price vs growth, sales, margins, debt) count more than the mood checks (analyst targets, price trend). The same points are also split three ways: the business itself, the price you pay for it, and the market's mood, so you can see where a score comes from. Think of it as a map of where to look, not a buy-or-sell call. The next slides go through the checks one at a time.`,
     says: [ov.score != null ? `${name} scores **${ov.score}** (${ov.lean.toLowerCase()}): ${ov.good} of ${ov.total} checks pass${ov.bad ? ` and ${ov.bad} fail` : ""}.` : null,
       good.length ? `Strong: ${list(good)}.` : null, bad.length ? `Worth a closer look: ${list(bad)}.` : null,
+      ov.parts?.length ? `Split three ways (each out of 100): ${ov.parts.map((p) => `${p.label.toLowerCase()} **${p.score ?? "not judged"}**`).join(", ")}.` : null,
+      splitRead(ov),
       sharpDrop(d) ? `But the price is **down ${pct(-sharpDrop(d).change, { digits: 0 })} in a month**. The checks lag news like that, so check the News tab before trusting the score.` : null] });
 
   // the price

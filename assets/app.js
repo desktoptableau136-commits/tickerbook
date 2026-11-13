@@ -346,7 +346,7 @@ function tickerCard(d, tag) {
           drop ? h("span", { class: "drop-badge", "data-tip": `Down ${A.pct(-drop.change, { digits: 0 })} in a month. The score lags news like this; open the ticker for why.`, "data-tip-title": "Big drop" }, `⚠ Down ${A.pct(-drop.change, { digits: 0 })}`) : null,
           news.length ? h("span", { class: "new-badge", "data-tip": news.map((x) => x.text).join(" · "), "data-tip-title": "Since you last looked" }, `${news.length} new`) : null),
         h("div", { class: "tcard-name" }, d.name)),
-      h("span", { class: "has-tip", "data-tip": `${ov.lean}${ov.score != null ? `: ${ov.good} of ${ov.total} checks positive${ov.bad ? `, ${ov.bad} negative` : ""}` : ""}. A weighted checklist out of 100, not a prediction.${drop ? " It lags news, and the price just dropped sharply." : ""} Open the ticker to see each check.`, "data-tip-title": ov.score != null ? `Score ${ov.score}` : "No score yet" },
+      h("span", { class: "has-tip", "data-tip": `${ov.lean}${ov.score != null ? `: ${ov.good} of ${ov.total} checks positive${ov.bad ? `, ${ov.bad} negative` : ""}` : ""}. ${ov.parts?.length ? ` ${partsLine(ov)}.` : ""} A weighted checklist out of 100, not a prediction.${drop ? " It lags news, and the price just dropped sharply." : ""} Open the ticker to see each check.`, "data-tip-title": ov.score != null ? `Score ${ov.score}` : "No score yet" },
         scoreRing(ov, 40, 4, "mini"))),
     h("div", { class: "tcard-mid" },
       h("div", {},
@@ -575,6 +575,12 @@ function verdictCard(d) {
   const concerns = sig.filter((s) => s.status === "bad").map((s) => s.label.toLowerCase());
   const list = (a) => (a.length > 1 ? `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}` : a[0]);
   const summary = [strengths.length ? `Strengths: ${list(strengths)}.` : null, concerns.length ? `Watch out for: ${list(concerns)}.` : null].filter(Boolean).join(" ");
+  const split = A.splitRead(ov);
+  const row = (s) => h("details", { class: "signal" },
+    h("summary", {}, h("span", { class: "lbl" }, h("span", { class: "has-tip", "data-tip": s.text, "data-tip-title": `${s.label}: ${s.word}` }, s.label)), h("span", { class: "val" }, s.value), pill(s.status, s.word)),
+    h("div", { class: "body" }, h("p", {}, s.text), signalMath(s, ov), s.term ? h("button", { class: "linkish small", type: "button", on: { click: () => openTerm(s.term) } }, `What's ${GLOSSARY[s.term].term}?`) : null));
+  // Checks grouped by part; each heading shows that part's share of the points.
+  const groups = ov.parts?.length ? ov.parts.flatMap((p) => [partHead(p), ...p.checks.map(row)]) : sig.map(row);
 
   return card(null, { area: "verdict", class: "span" },
     h("div", { class: "verdict" }, ring,
@@ -584,11 +590,22 @@ function verdictCard(d) {
         h("div", { class: "ink2 small" }, `${ov.good} of ${ov.total} signals positive${ov.bad ? `, ${ov.bad} negative` : ""}`),
         ov.score != null ? h("div", { class: "muted small tnum" }, `${fmtPts(ov.earned)} of ${fmtPts(ov.possible)} points = ${ov.score}`) : null)),
     summary ? h("p", { class: "verdict-sum" }, summary) : null,
-    h("div", { class: "signals" }, sig.map((s) => h("details", { class: "signal" },
-      h("summary", {}, h("span", { class: "lbl" }, h("span", { class: "has-tip", "data-tip": s.text, "data-tip-title": `${s.label}: ${s.word}` }, s.label)), h("span", { class: "val" }, s.value), pill(s.status, s.word)),
-      h("div", { class: "body" }, h("p", {}, s.text), signalMath(s, ov), s.term ? h("button", { class: "linkish small", type: "button", on: { click: () => openTerm(s.term) } }, `What's ${GLOSSARY[s.term].term}?`) : null)))),
-    h("p", { class: "muted small", style: "margin:10px 0 0" }, h("span", { class: "only-touch" }, "Tap a row for what it means and how it's scored. "), h("span", { class: "only-hover" }, "Hover a row for what it means; click it for how it's scored. "), "Each check earns 0 to 1 on a sliding scale, and business checks weigh more than mood checks (analyst targets, price trend). It's a checklist, not a prediction. ", h("a", { href: `#/t/${d.symbol}/walk` }, "New to this? Walk through it step by step ›")));
+    split ? h("p", { class: "verdict-sum split" }, rich(split)) : null,
+    h("div", { class: "signals" }, groups),
+    h("p", { class: "muted small", style: "margin:10px 0 0" }, h("span", { class: "only-touch" }, "Tap a row for what it means and how it's scored. "), h("span", { class: "only-hover" }, "Hover a row for what it means; click it for how it's scored. "), "Each check earns 0 to 1 on a sliding scale, and business checks weigh more than mood checks (analyst targets, price trend). The bars split the same points into business, price and mood; they add up to the score. It's a checklist, not a prediction. ", h("a", { href: `#/t/${d.symbol}/walk` }, "New to this? Walk through it step by step ›")));
 }
+
+// A part's heading: name, a bar filled to its share of its own points, and the points.
+function partHead(p) {
+  const tip = `${p.label} covers ${p.about}: ${p.checks.map((s) => s.label.toLowerCase()).join(", ")}. ${p.score != null ? `It earned ${fmtPts(p.earned)} of its ${fmtPts(p.possible)} points, which is ${p.score} out of 100 for this part.` : "None of its checks could be judged yet."}`;
+  return h("div", { class: "part-head has-tip", "data-tip": tip, "data-tip-title": p.label },
+    h("span", { class: "part-name" }, p.label),
+    h("span", { class: "part-track", "aria-hidden": "true" }, p.score != null ? h("span", { class: "part-fill", style: `width:${Math.max(2, p.score)}%` }) : null),
+    h("span", { class: "part-pts tnum" }, p.score != null ? `${p.score} · ${fmtPts(p.earned)} of ${fmtPts(p.possible)} pts` : "not judged"));
+}
+
+// Home-card tooltip line: "Business 74 · Price 40 · Mood 61".
+const partsLine = (ov) => (ov.parts || []).map((p) => `${p.label} ${p.score ?? "—"}`).join(" · ");
 
 const fmtPts = (x) => (Math.round(x * 10) / 10).toString();
 // One line under each check: its sliding scale, what it earned, and its weight.
