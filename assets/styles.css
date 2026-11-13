@@ -1007,3 +1007,25 @@ html.dash-on .dash-dividends .tiles, html.dash-on .dash-divfund .tiles { grid-te
   .walk-slide.no-panel { grid-template-columns: minmax(0, 720px); }
   .walk-text { position: sticky; top: 12px; }
 }
+
+/* Ideas page (#/ideas) and its one-line link on home */
+.ideas-link { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 12px 14px; border: 1px dashed var(--border); border-radius: 14px; color: inherit; font-size: 14px; }
+.ideas-link:hover { text-decoration: none; border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.ideas-link .grow { flex: 1 1 auto; min-width: 0; }
+.ideas-how { padding-top: 12px; padding-bottom: 12px; }
+.ideas-how summary { cursor: pointer; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ideas-how-body { display: grid; gap: 4px 20px; margin-top: 6px; }
+.ideas-how-body h4 { margin: 10px 0 4px; }
+.ideas-how-body p { margin: 0 0 6px; }
+.ideas-rules { margin: 0 0 6px; padding-left: 18px; }
+.icard { display: flex; flex-direction: column; }
+.icard .tcard-name { margin-bottom: 6px; }
+.icard-why { margin: 0; flex: 1 1 auto; color: var(--ink-2); }
+.icard .tcard-foot { flex-wrap: wrap; }
+.icard-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.ideas-grid > .extra { display: none; }
+.ideas-grid.all > .extra { display: flex; }
+.idea-score { display: flex; align-items: center; gap: 14px; }
+.idea-actions { display: flex; gap: 8px; margin-top: 16px; }
+.idea-actions > * { flex: 1 1 0; }
+@media (min-width: 960px) { .ideas-how-body { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

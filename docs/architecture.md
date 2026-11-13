@@ -22,6 +22,8 @@ Detailed reference, split out of `CLAUDE.md` to keep that file lean. Read the se
 
 **Peers.** `build_peers()` stores up to 8 of the largest companies in the same Yahoo industry (`yf.Industry(key).top_companies`, skipping other share classes) as `d.peers.list`. `peer_info()` (cached per run) keeps the same `info` fields for each peer as the ticker's own data, so the Peers tab compares like with like.
 
+**Ideas.** On `refresh` only, `build_ideas()` writes `data/_ideas.json`: every active ticker's peers ("neighbors", `via` = the watchlist tickers) plus `run_screen()`, a `yf.screen` `EquityQuery` built from `SCREEN_RULES` (each rule's plain-English text is shown on the page, so change both together), keeping the `SCREEN_MAX` largest. `raw_info()` caches Yahoo `info` per run, so neighbors cost no extra calls; the screen adds ~40 (~20 s). Watchlist symbols and other share classes of them are skipped. `firstSeen` carries over between runs. If the screen fails, the last screen results are kept (`screen.ok: false`). The rules are ticker-neutral on purpose; nothing is added or left out by name.
+
 **Benchmarks.** `BENCHES` (SPY, QQQ) are fetched with `price_history()` like any ticker, so dividends are folded in on both sides. Don't switch to `^GSPC`/`^NDX`: the indexes leave dividends out, which flattered every stock by ~1.3%/yr. A failed fetch keeps the previous copy.
 
 **Fund holdings.** Yahoo returns only a fund's top 10. Plain S&P 500 funds (name matches "S&P 500", none of growth/equal/leveraged…) take their top 15 from SPY's daily holdings xlsx (needs `openpyxl`) and record `fund.holdingsSource`. Falls back quietly to Yahoo.
@@ -71,7 +73,7 @@ Peer methods are left out with < 4 usable peers or when the middle-half multiple
 
 ## Pages and features (`app.js`)
 
-Hash router: `#/`, `#/t/SYM/<tab>`, `#/learn`, `#/settings`. Equity tabs: Summary, Walkthrough, Earnings, Financials, Dividends, Valuation, Peers, Analysts, News. ETF tabs: Summary, Walkthrough, Holdings, Dividends, News. Tiny `h()` DOM builder.
+Hash router: `#/`, `#/t/SYM/<tab>`, `#/ideas`, `#/learn`, `#/settings`. Equity tabs: Summary, Walkthrough, Earnings, Financials, Dividends, Valuation, Peers, Analysts, News. ETF tabs: Summary, Walkthrough, Holdings, Dividends, News. Tiny `h()` DOM builder.
 
 **Home cards.** Each card shows the checklist score as a small `scoreRing()` (the same ring as Summary's, top right) and `overall().short` (Strong / Mixed / Caution) in the footer, so the earnings date stays on one line. Summary keeps the full `lean` wording.
 
@@ -82,6 +84,8 @@ Hash router: `#/`, `#/t/SYM/<tab>`, `#/learn`, `#/settings`. Equity tabs: Summar
 **Hover popovers.** On `(hover: hover) and (pointer: fine)`, elements with `data-term` or `data-tip`/`data-tip-title` show a popover (delegated listeners near the end of `app.js`). Click still opens the bottom sheet.
 
 **Since you last looked.** Opening a ticker stores `A.fingerprint()` in localStorage (`stockdash.seen.<SYM>`). When the data's `updated` differs, `changesSince()` lists what moved. The banner above the tabs keeps showing it (from `prev`) until "Got it". Home cards show "N new" for data not yet opened. Browser-only.
+
+**Ideas page** (`#/ideas`, lightbulb in the top bar; home shows one link line under the cards). `A.ideaData()` shapes an idea like a watchlist file (`lite: true`) so `equitySignals()` runs the same checks: 6 of 8 (no earnings record or estimate trend, and `lite` skips `fairValueGap`, so price is PEG only). The neighbor's profitability compares with the `via` ticker's peers. `A.ideaWhy()` compares a neighbor with its `via` ticker on growth, margin, debt and forward P/E, listing better and worse. The preview sheet also shows the `via` ticker's `A.quickSignals()` score, because quick scores run higher than full ones. Hide (`stockdash.ideasHidden`), seen (`ideasSeen`, for the "new" badges) and the source filter are in localStorage. Research uses the normal `startTask` add.
 
 **Peers tab.** `PEER_GROUPS` rows have `self(d)` / `peer(p)` getters reading the same field, an `ok` filter for meaningless values, and `better` (`null` = not ranked, e.g. beta). "Beats/lags most peers" = better/worse than ≥ 2/3 of peers with a usable value. Labels use `termPlain()` (no thumb, since this tab ranks against peers). This replaced a watchlist-wide compare page at the user's request.
 

@@ -22,7 +22,7 @@ There are no tests or linters. Verify UI changes in a browser at both ~1440px an
 
 ## Map
 
-- `watchlist.json` → `scripts/fetch.py` → `data/<SYM>.json`, `_bench.json`, `index.json`, `last_request.json` → browser.
+- `watchlist.json` → `scripts/fetch.py` → `data/<SYM>.json`, `_bench.json`, `_ideas.json`, `index.json`, `last_request.json` → browser.
 - `assets/app.js`: router, every page and tab, sheets, popovers, research task.
 - `assets/analysis.js`: pure functions (signals, valuation, plain-English text, feature helpers).
 - `assets/charts.js`: hand-rolled SVG charts.
@@ -34,6 +34,7 @@ There are no tests or linters. Verify UI changes in a browser at both ~1440px an
 
 - `update.yml` step names ↔ `STAGES` in `github.js`; also the `run-name` format and the job name `fetch`.
 - `judge()` thresholds ↔ the glossary `rule` text.
+- `SCREEN_RULES` in `fetch.py`: each rule's text ↔ its query (the Ideas page shows the text).
 - `debtPicture()` names valuation methods by number.
 - Dark mode is defined twice in `styles.css` (`prefers-color-scheme` block guarded by `:not([data-theme="light"])`, and `[data-theme="dark"]`). Change both.
 - Laptop grid placement goes through `card(title, { area })` → `--area`, never `grid-area` directly. Per-tab areas are in `styles.css`.

@@ -16,6 +16,7 @@ Writes:
                        for the price chart's "vs" comparisons
   data/index.json      list of tickers + tags + last update time
   data/last_request.json  outcome of the most recent add/remove/tag request
+  data/_ideas.json     companies worth a look (watchlist peers + a broad screen), refresh only
 """
 
 from __future__ import annotations
@@ -212,11 +213,19 @@ def earnings_reaction(prices, when: pd.Timestamp):
 # ---------------------------------------------------------------- per ticker
 
 _peer_cache: dict = {}
+_info_cache: dict = {}
+
+
+def raw_info(sym: str) -> dict:
+    """Yahoo's info for any symbol, fetched once per run (peers and ideas share it)."""
+    if sym not in _info_cache:
+        _info_cache[sym] = quiet(lambda: yf.Ticker(sym).info, {}) or {}
+    return _info_cache[sym]
 
 
 def peer_info(sym: str):
     if sym not in _peer_cache:
-        i = quiet(lambda: yf.Ticker(sym).info, {}) or {}
+        i = raw_info(sym)
         _peer_cache[sym] = {
             "symbol": sym,
             "name": i.get("shortName") or i.get("longName") or sym,
@@ -870,6 +879,141 @@ def build(symbol: str, tag: str):
     return d
 
 
+# ---------------------------------------------------------------- ideas
+
+# The broad screen's rules, shown word for word on the Ideas page. Ticker-neutral on purpose:
+# every company is held to the same numbers, and nothing is added or left out by name.
+SCREEN_RULES = [
+    ("Listed on a major US exchange (NYSE, Nasdaq or NYSE American)", "is-in", ["exchange", "NMS", "NYQ", "NGM", "NCM", "ASE"]),
+    ("Company worth $10B to $500B", "btwn", ["intradaymarketcap", 10e9, 500e9]),
+    ("Sales up more than 8% over the last year", "gt", ["totalrevenues1yrgrowth.lasttwelvemonths", 8]),
+    ("Keeps more than 12¢ of profit from every $1 of sales", "gt", ["netincomemargin.lasttwelvemonths", 12]),
+    ("Total debt under 3 years of EBITDA", "lt", ["totaldebtebitda.lasttwelvemonths", 3]),
+]
+SCREEN_MAX = 40  # the largest companies that pass, by market value
+SUMMARY_CHARS = 420
+
+
+def idea_info(sym: str):
+    """The numbers the Ideas page scores a company on: the same fields (and units) as a
+    watchlist ticker's own data, so the browser runs the same checks on them."""
+    i = raw_info(sym)
+    if not i or (i.get("quoteType") or "EQUITY") != "EQUITY":
+        return None
+    about = (i.get("longBusinessSummary") or "").strip()
+    if len(about) > SUMMARY_CHARS:
+        cut = about[:SUMMARY_CHARS]
+        about = cut[: cut.rfind(". ") + 1] if ". " in cut else cut.rsplit(" ", 1)[0] + "…"
+    return {
+        "symbol": sym,
+        "name": i.get("shortName") or i.get("longName") or sym,
+        "longName": i.get("longName"),
+        "industry": i.get("industryDisp") or i.get("industry"),
+        "sector": i.get("sectorDisp") or i.get("sector"),
+        "about": about or None,
+        "price": clean(i.get("currentPrice") or i.get("regularMarketPrice")),
+        "ma200": clean(i.get("twoHundredDayAverage")),
+        "marketCap": clean(i.get("marketCap")),
+        "forwardPE": clean(i.get("forwardPE")),
+        "trailingPE": clean(i.get("trailingPE")),
+        "peg": clean(i.get("trailingPegRatio") or i.get("pegRatio")),
+        "revenueGrowth": clean(i.get("revenueGrowth")),
+        "operatingMargin": clean(i.get("operatingMargins")),
+        "freeCashflow": clean(i.get("freeCashflow")),
+        "debt": clean(i.get("totalDebt")),
+        "cash": clean(i.get("totalCash")),
+        "ebitda": clean(i.get("ebitda")),
+        "dividendYield": pct(i.get("dividendYield")),
+        "targetMedian": clean(i.get("targetMedianPrice")),
+        "targetMean": clean(i.get("targetMeanPrice")),
+        "analystCount": clean(i.get("numberOfAnalystOpinions")),
+        "recommendationKey": i.get("recommendationKey"),
+    }
+
+
+def run_screen():
+    from yfinance import EquityQuery as Q
+    q = Q("and", [Q(op, args) for _, op, args in SCREEN_RULES])
+    got = retry(lambda: yf.screen(q, sortField="intradaymarketcap", sortAsc=False, size=min(100, SCREEN_MAX * 2)))
+    return [x["symbol"] for x in (got or {}).get("quotes", []) if x.get("symbol")], (got or {}).get("total")
+
+
+def build_ideas(wl):
+    """Companies worth a look, from two places: the industry peers already fetched for each
+    watchlist ticker ("neighbors"), and a broad screen with rules anyone can read. The browser
+    scores them with the same checks as the watchlist. Writes data/_ideas.json."""
+    path = DATA / "_ideas.json"
+    try:
+        old = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        old = {}
+    first = {x["symbol"]: x.get("firstSeen") for x in old.get("list", [])}
+    on_list = {t["symbol"] for t in wl["tickers"]}
+    # another share class of a company already on the watchlist isn't a new idea (GOOG/GOOGL)
+    own_names = set()
+    for s in on_list:
+        try:
+            j = json.loads((DATA / f"{s}.json").read_text(encoding="utf-8"))
+            own_names |= {j.get("name"), j.get("longName")} - {None}
+        except Exception:
+            pass
+    ideas: dict = {}
+
+    def add(sym, source, via=None):
+        if sym in on_list:
+            return
+        if sym not in ideas:
+            x = idea_info(sym)
+            if not x or not isinstance(x.get("price"), (int, float)):
+                return
+            if x.get("longName") in own_names or any(y.get("longName") and y["longName"] == x.get("longName") for y in ideas.values()):
+                return
+            ideas[sym] = {**x, "sources": [], "via": []}
+        if source not in ideas[sym]["sources"]:
+            ideas[sym]["sources"].append(source)
+        if via and via not in ideas[sym]["via"]:
+            ideas[sym]["via"].append(via)
+
+    for t in wl["tickers"]:
+        if t["tag"] == "archived":
+            continue
+        try:
+            j = json.loads((DATA / f"{t['symbol']}.json").read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for p in ((j.get("peers") or {}).get("list") or []):
+            add(p["symbol"], "neighbor", t["symbol"])
+
+    screen = {"rules": [r for r, _, _ in SCREEN_RULES], "max": SCREEN_MAX}
+    try:
+        syms, total = run_screen()
+        screen.update(ok=True, total=total)
+        n = 0
+        for s in syms:
+            if n >= SCREEN_MAX:
+                break
+            before = s in ideas and "screen" in ideas[s]["sources"]
+            add(s, "screen")
+            if s in ideas and not before:
+                n += 1
+    except Exception as e:
+        print(f"   screen FAILED: {e}")
+        screen["ok"] = False
+        # keep the last good screen results so the page isn't half empty for a day
+        for x in old.get("list", []):
+            if "screen" in x.get("sources", []) and x["symbol"] not in on_list and x["symbol"] not in ideas:
+                ideas[x["symbol"]] = {**x, "sources": ["screen"], "via": []}
+
+    day = today()
+    out = []
+    for x in ideas.values():
+        x.pop("longName", None)
+        x["firstSeen"] = first.get(x["symbol"]) or day
+        out.append(x)
+    write_json(path, {"updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "screen": screen, "list": out})
+    print(f"   {len(out)} ideas ({sum('neighbor' in x['sources'] for x in out)} neighbors, {sum('screen' in x['sources'] for x in out)} from the screen)")
+
+
 # ---------------------------------------------------------------- main
 
 def write_json(path: Path, obj):
@@ -1129,6 +1273,13 @@ def main():
                 benches[sym] = prev[sym]  # keep the last good copy
     if benches:
         write_json(DATA / "_bench.json", {"benches": benches})
+
+    if args.action == "refresh":
+        print("-> ideas")
+        try:
+            build_ideas(wl)
+        except Exception as e:
+            print(f"   FAILED: {e}")
 
     write_index(wl, moves=archived_moves(wl) if args.action == "refresh" else None)
 

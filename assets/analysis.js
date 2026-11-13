@@ -188,7 +188,8 @@ export function equitySignals(d) {
       : `Trading at ${times(fpe)} next year's expected earnings${gTxt}. ${meaning}${doubt ? "" : low}`;
     if (doubt) text += ` Treat that with caution: ${doubt.why}. So the price-vs-growth reading counts as neutral at most.`;
     // Second reading: today's price vs the fair-value methods' average (see fairValueGap).
-    const fv = fairValueGap(d);
+    // Ideas (d.lite) have no statements to run the fair-value methods on, so they get the PEG reading alone.
+    const fv = d.lite ? null : fairValueGap(d);
     let pts = vp, rule = vRule, status = st, mixed = false, fvTxt = "";
     if (fv) {
       const gp = ramp(fv.gap, -0.3, 0.3), wide = fv.spread >= 1.6;
@@ -1887,4 +1888,58 @@ export function changesSince(d, b, score) {
   }
   if (isNum(now.score) && isNum(b.score) && now.score !== b.score && b.sv === now.sv) out.push({ tone: now.score > b.score ? "good" : "bad", text: `Checklist score ${b.score} → ${now.score}`, tab: "summary" });
   return out;
+}
+
+// ------------------------------------------------------------------ ideas
+
+// An idea from data/_ideas.json, shaped like a watchlist ticker's data so equitySignals() runs the
+// same checks on it. Ideas only have Yahoo's summary numbers: no earnings history, estimate trend or
+// statements, so the earnings record and estimate trend are skipped and the valuation check reads
+// price vs growth (PEG) alone. `via`: the watchlist ticker it's a neighbor of; its peers (and it)
+// are the idea's industry for the profitability comparison.
+export const IDEA_CHECKS = 6;
+export function ideaData(x, via) {
+  const peers = via ? [...(via.peers?.list || []), { symbol: via.symbol, operatingMargin: via.fundamentals?.operatingMargin }] : [];
+  return {
+    lite: true, type: "EQUITY", symbol: x.symbol, name: x.name,
+    quote: { price: x.price, ma200: x.ma200 },
+    valuation: { forwardPE: x.forwardPE, peg: x.peg, trailingPE: x.trailingPE, dividendYield: x.dividendYield },
+    fundamentals: { revenueGrowth: x.revenueGrowth, operatingMargin: x.operatingMargin, freeCashflow: x.freeCashflow, debt: x.debt, cash: x.cash, ebitda: x.ebitda },
+    analysts: { targets: { median: x.targetMedian, mean: x.targetMean }, count: x.analystCount, recommendationKey: x.recommendationKey },
+    peers: { list: peers.filter((p) => p.symbol !== x.symbol) },
+  };
+}
+
+// A watchlist ticker on the ideas' quick check (same checks an idea gets), so the two compare fairly.
+export function quickSignals(d) {
+  return equitySignals({ ...d, lite: true, earnings: {}, financials: {}, filing: null });
+}
+
+// One plain-English line on why an idea is on the list. A neighbor is compared with the watchlist
+// ticker it came from, on the four business numbers, saying where it's better *and* worse.
+export function ideaWhy(x, via) {
+  if (!via) {
+    return x.sources?.includes("screen") || !x.via?.length
+      ? `Passed all the broad screen's rules${x.industry ? ` (${x.industry})` : ""}.`
+      : `Same industry as ${x.via.join(", ")}${x.industry ? ` (${x.industry})` : ""}.`;
+  }
+  const vf = via.fundamentals || {}, vv = via.valuation || {};
+  const levTxt = (r) => (r < 0 ? "net cash" : `${times(r)} EBITDA`);
+  const lev = (f) => (isNum(f.debt) && isNum(f.cash) && isNum(f.ebitda) && f.ebitda > 0 ? (f.debt - f.cash) / f.ebitda : null);
+  const cmp = [];
+  const both = (a, b) => isNum(a) && isNum(b);
+  if (both(x.revenueGrowth, vf.revenueGrowth) && Math.abs(x.revenueGrowth - vf.revenueGrowth) >= 0.03)
+    cmp.push([x.revenueGrowth > vf.revenueGrowth, `${x.revenueGrowth > vf.revenueGrowth ? "faster" : "slower"} sales growth (**${pct(x.revenueGrowth, { sign: true })}** vs ${pct(vf.revenueGrowth, { sign: true })})`]);
+  if (both(x.operatingMargin, vf.operatingMargin) && Math.abs(x.operatingMargin - vf.operatingMargin) >= 0.03)
+    cmp.push([x.operatingMargin > vf.operatingMargin, `${x.operatingMargin > vf.operatingMargin ? "wider" : "thinner"} margins (**${pct(x.operatingMargin)}** vs ${pct(vf.operatingMargin)})`]);
+  const lx = lev(x), lv = lev(vf);
+  if (both(lx, lv) && Math.abs(lx - lv) >= 0.5)
+    cmp.push([lx < lv, `${lx < lv ? "less" : "more"} debt (**${levTxt(lx)}** vs ${levTxt(lv)})`]);
+  if (both(x.forwardPE, vv.forwardPE) && x.forwardPE > 0 && vv.forwardPE > 0 && Math.abs(x.forwardPE / vv.forwardPE - 1) >= 0.15)
+    cmp.push([x.forwardPE < vv.forwardPE, `${x.forwardPE < vv.forwardPE ? "cheaper" : "pricier"} on next year's profit (**${times(x.forwardPE)}** vs ${times(vv.forwardPE)} P/E)`]);
+  const ups = cmp.filter((c) => c[0]).map((c) => c[1]), downs = cmp.filter((c) => !c[0]).map((c) => c[1]);
+  const list = (a) => (a.length > 1 ? `${a.slice(0, -1).join(", ")} and ${a.at(-1)}` : a[0]);
+  const base = `Same industry as ${via.symbol}${x.industry ? ` (${x.industry})` : ""}.`;
+  if (!cmp.length) return `${base} Close to ${via.symbol} on growth, margins, debt and price.`;
+  return `${base}${ups.length ? ` Compared with ${via.symbol}: ${list(ups)}.` : ""}${downs.length ? ` ${ups.length ? "But" : `Compared with ${via.symbol}:`} ${list(downs)}.` : ""}`;
 }
