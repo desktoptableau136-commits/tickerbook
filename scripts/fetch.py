@@ -1028,6 +1028,14 @@ LOGO_MAX_BYTES = 200_000
 LOGO_RECHECK_OK = 180     # days before a saved logo is fetched again
 LOGO_RECHECK_MISS = 30    # days before a company without one is tried again
 LOGO_UA = "Mozilla/5.0 (compatible; TickerbookLogoFetch/1.0)"
+# Where to look instead of Yahoo's website, for companies whose own site has no usable icon. A page to
+# search for icons, or a direct PNG/JPEG. Cosmetic only: nothing here affects scores or ideas.
+LOGO_SOURCES = {
+    "GOOG": "https://about.google",  # Yahoo lists Alphabet's abc.xyz (16px icon); Google's "G" is the one people know
+    "GOOGL": "https://about.google",
+    # verizon.com only serves a 16px icon; Verizon's 2024 "V" symbol from Wikimedia Commons (public domain, trademarked)
+    "VZ": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5a/Verizon_2024_%28symbol%29.svg/330px-Verizon_2024_%28symbol%29.svg.png",
+}
 
 
 class _IconLinks(HTMLParser):
@@ -1104,9 +1112,17 @@ def as_image(b: bytes):
 
 
 def find_logo(website: str):
-    """The company's square icon as PNG bytes, or (None, reason)."""
+    """The company's square icon as PNG/JPEG bytes and where it came from, or (None, reason).
+    `website` can also be a direct image URL (from LOGO_SOURCES)."""
     if not website or not website.startswith(("http://", "https://")):
         return None, "no website"
+    if re.search(r"\.(png|jpe?g)$", urllib.parse.urlparse(website).path, re.I):
+        try:
+            _, _, b = _get(website, LOGO_MAX_BYTES)
+            b = as_image(b) if len(b) <= LOGO_MAX_BYTES else None
+            return (b, website) if b and min(image_kind(b)[1:]) >= LOGO_MIN_PX else (None, "listed image unusable")
+        except Exception as e:
+            return None, f"listed image failed: {e}"
     urljoin = urllib.parse.urljoin
     cands = []
     try:
@@ -1161,12 +1177,15 @@ def update_logos(symbols_sites: dict):
         e = idx.get(sym) or {}
         if e.get("skip"):
             return False
+        if sym in LOGO_SOURCES and not e.get("ok"):
+            return True  # a hand-picked source that failed (rate limit, say) is retried every run
         try:
             age = (now - datetime.fromisoformat(e["checked"])).days
         except Exception:
             return True
         return age >= (LOGO_RECHECK_OK if e.get("ok") else LOGO_RECHECK_MISS) or e.get("site") != site
 
+    symbols_sites = {s: LOGO_SOURCES.get(s, w) for s, w in symbols_sites.items()}
     todo = [(s, w) for s, w in symbols_sites.items() if due(s, w)]
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=8) as ex:  # each worker hits a different company's site
