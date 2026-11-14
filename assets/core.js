@@ -178,6 +178,7 @@ export function tagIcon(tag) {
   return h("span", { class: `tagic ${tag}`, role: "img", "aria-label": word, "data-tip": TAG_TIP[tag], "data-tip-title": word }, tagSvg(tag));
 }
 
+// "Show all": hides a list's rows past the first `show` and returns the toggle button (null if not needed).
 export function showMore(list, show) {
   const rows = [...list.children];
   if (rows.length <= show) return null;

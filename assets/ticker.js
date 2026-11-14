@@ -55,7 +55,7 @@ export function renderTicker(sym, tab) {
     h("span", { class: "tabs-note" }, "Learning tool · not financial advice"));
 
   const body = h("div", {});
-  view.append(head, archiveNote(d, sym), newListingNote(d), dropNote(d), changesBanner(d) || "", tabBar, body);
+  view.append(head, archiveNote(d, sym), newListingNote(d), dropNote(d), checksNote(d, tab, tabs), changesBanner(d) || "", tabBar, body);
   TAB_FN[tab](d, body);
   body.append(h("p", { class: "disclaimer" }, "For learning and research only. Not financial advice."));
 }
@@ -84,6 +84,18 @@ function dropNote(d) {
     h("b", {}, "⚠ Big drop: "), `down ${A.pct(-dr.change, { digits: 0 })} in a month (${A.price(dr.from)} on ${A.date(dr.fromDate)} → ${A.price(d.quote.price)}). `,
     "The score is built from reported results and analyst forecasts, which take weeks to catch up with news, and a falling price makes valuation and target upside look better. So the score probably looks rosier than things are. ",
     h("a", { href: `#/t/${d.symbol}/news` }, "Read the news ›"));
+}
+
+// "Looks off": numbers too far out to be real (A.dataChecks). Each shows on its own tab; Summary
+// lists them all with a link, so nothing is presented with a straight face. Never changes the score.
+function checksNote(d, tab, tabs) {
+  const all = A.dataChecks(d), names = Object.fromEntries(tabs);
+  const here = tab === "summary" ? all : all.filter((c) => c.tab === tab);
+  if (!here.length) return "";
+  // elsewhere on Summary: one line and a link (the full reason is on that tab), so the notice stays short
+  return h("div", { class: "notice warn odd-note", role: "note" }, here.map((c, i) => h("div", { class: i ? "odd-more" : null },
+    h("b", {}, `⚠ Looks off: ${c.title}. `),
+    c.tab === tab ? c.text : h("a", { href: `#/t/${d.symbol}/${c.tab}` }, `Why, on ${names[c.tab] || c.tab} ›`))));
 }
 
 // Recently listed: why several checks say "too new to judge" (the same rules apply to every stock).
@@ -126,7 +138,6 @@ function archiveNote(d, sym) {
   return parts.length ? h("div", { class: "notice arch-note" }, ...parts.flatMap((x, i) => (i ? [h("br"), x] : [x]))) : "";
 }
 
-// "Show all": hides a list's rows past the first `show` and returns the toggle button (null if not needed).
 // ---------------------------------------------------------------- price chart
 // hover values for the price chart's % views: "−12.3%" and "$182.40"
 const pctTip = (v) => (Math.abs(v) < 0.0005 ? "at its high" : `${v < 0 ? "−" : "+"}${Math.abs(v * 100).toFixed(1)}%`);

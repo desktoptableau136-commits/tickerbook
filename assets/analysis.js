@@ -999,6 +999,57 @@ export function fairValueGap(d) {
   return b && b.n >= 2 ? { ...b, gap: b.avg / P - 1 } : null;
 }
 
+// ------------------------------------------------------------------ "this number looks off"
+// Yahoo's data is unofficial and sometimes plainly wrong (a stale price, a share count for one
+// class only, a one-off gain counted as profit). These checks catch numbers too far out to be
+// real, so the page says so instead of presenting them with a straight face. They never change
+// the score. Each: { tab, title, text } with the numbers that tripped it.
+export const ODD = { fairValue: 3, method: 5, target: 3, pe: 0.3, yield: 0.15, range: 0.1 };
+export function dataChecks(d) {
+  const out = [], q = d.quote || {}, P = q.price, v = d.valuation || {}, f = d.fundamentals || {};
+  const add = (tab, title, text) => out.push({ tab, title, text });
+  if (!isNum(P) || P <= 0) {
+    add("summary", "No usable price", "Yahoo didn't return a price for this ticker, so every number that compares with the price (P/E, fair value, upside) is unreliable until the next update.");
+    return out;
+  }
+  if (isNum(q.low52) && isNum(q.high52) && (P < q.low52 * (1 - ODD.range) || P > q.high52 * (1 + ODD.range))) {
+    add("summary", "Price outside its 52-week range", `Today's price, ${price(P)}, is outside Yahoo's 52-week range of ${price(q.low52)}–${price(q.high52)}. One of them is out of date, so the range and "below its high" may be wrong.`);
+  }
+  const yld = v.dividendYield;
+  if (isNum(yld) && yld > ODD.yield) {
+    add("dividends", "Dividend yield looks too high", `Yahoo shows a ${pct(yld)} yield. Above ${pct(ODD.yield, { digits: 0 })} is usually a data mix-up (a one-time special dividend counted as regular, or an old dividend on a fallen price), or a payout the market expects to be cut.`);
+  }
+  if (d.type === "ETF") {
+    if (!(d.fund?.holdings || []).length) add("holdings", "No holdings came back", "Yahoo returned no list of what this fund owns, so the Holdings tab and the watchlist overlap are empty until a later update has them.");
+    return out;
+  }
+  const eps = f.epsTTM, pe = v.trailingPE;
+  if (isNum(eps) && eps > 0 && isNum(pe) && pe > 0 && Math.abs(pe / (P / eps) - 1) > ODD.pe) {
+    add("valuation", "P/E doesn't add up", `Yahoo's P/E is ${times(pe)}, but price ÷ earnings per share is ${price(P)} ÷ ${price(eps)} = ${times(P / eps)}. One of the inputs is stale or from a different period.`);
+  }
+  if (isNum(f.netMargin) && f.netMargin > 1) {
+    add("financials", "Profit bigger than sales", `Net margin is ${pct(f.netMargin, { digits: 0 })}: over the last year, reported profit was larger than total sales. That's almost always a one-off gain (selling a business, a jump in an investment's value, a tax benefit), not the business itself. Judge it on operating margin instead.`);
+  }
+  if (isNum(q.marketCap) && q.marketCap > 1e9 && isNum(f.revenueTTM) && f.revenueTTM <= 0) {
+    add("financials", "No sales reported", `Yahoo shows ${money(f.revenueTTM)} in sales over the last year for a ${money(q.marketCap)} company. Either the data is missing or it's a company that hasn't started selling yet; growth and margin numbers won't mean much.`);
+  }
+  const t = d.analysts?.targets || {}, tgt = isNum(t.median) ? t.median : t.mean;
+  if (isNum(tgt) && tgt > 0 && (tgt / P > ODD.target || P / tgt > ODD.target)) {
+    add("analysts", "Analyst target far from the price", `The middle analyst target is ${price(tgt)} against a ${price(P)} price (${riseText(tgt / P - 1)}). A gap that big usually means a stock split or a currency mix-up the targets haven't caught up with.`);
+  }
+  const ms = valuationMethods(d, valuationInputs(d)).filter((x) => x.include && isNum(x.value) && x.value > 0);
+  const wild = ms.filter((x) => x.value / P > ODD.method || P / x.value > ODD.method);
+  if (wild.length) {
+    add("valuation", wild.length > 1 ? "Some methods land far from the price" : "One method lands far from the price",
+      `${wild.map((x) => `${x.name} gives ${price(x.value)}`).join("; ")}, against a ${price(P)} price. More than ${ODD.method}× off is almost always an input problem (a one-off profit, a share count for one share class, a currency mix-up), not a bargain or a bubble. Leave ${wild.length > 1 ? "them" : "it"} out of the average until you've checked the inputs.`);
+  }
+  const fv = fairValueGap(d);
+  if (fv && (fv.avg / P > ODD.fairValue || P / fv.avg > ODD.fairValue)) {
+    add("valuation", "Fair value far from the price", `The methods average ${price(fv.avg)} against a ${price(P)} price. Markets are rarely that wrong about a company this well followed, so check the method details for a bad input before trusting it.`);
+  }
+  return out;
+}
+
 export function blend(methods, included) {
   const vals = methods.filter((x) => included[x.id] && isNum(x.value)).map((x) => x.value);
   if (!vals.length) return null;
