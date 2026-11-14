@@ -22,7 +22,8 @@ There are no tests or linters. Verify UI changes in a browser at both ~1440px an
 
 - `watchlist.json` → `scripts/fetch.py` → `data/<SYM>.json`, `_bench.json`, `_ideas.json`, `_names.json`, `logos/`, `index.json`, `last_request.json` → browser.
 - `scripts/score_history.mjs` (Actions only) rescores each day's data file from git history → `data/scores/<SYM>.json`.
-- `assets/app.js`: router, every page and tab, sheets, popovers, research task.
+- `assets/app.js`: entry point (boot). `router.js` routes to a module per page (`home`, `ideas`, `learn`, `settings`) and `ticker.js` to one per tab (`summary`, `walkthrough`, `earnings`, `financials`, `dividends`, `valuation`, `peers`, `analysts`, `news`, `holdings`).
+- `assets/core.js`: shared building blocks (`h()`, `card()`, `grid()`, `state`, data loading, prefs, laptop layout). `sheets.js`: sheets and hover popovers. `research.js`: Research and task progress.
 - `assets/analysis.js`: pure functions (signals, valuation, plain-English text, feature helpers).
 - `assets/charts.js`: hand-rolled SVG charts.
 - `assets/glossary.js`: jargon entries; adding a metric usually means adding an entry.
@@ -59,3 +60,4 @@ There are no tests or linters. Verify UI changes in a browser at both ~1440px an
 - Yahoo data is unofficial and inconsistent across endpoints; ETFs print `HTTP Error 404 ... No fundamentals data` during fetch (expected).
 - Playwright with the installed Chrome works for browser checks. In Git Bash set `MSYS_NO_PATHCONV=1`, or `#/t/...` routes get rewritten as paths.
 - Node isn't installed; test JS in the browser.
+- Modules import each other only as `import { x } from "./name.js"` (flat `assets/`, lowercase name, no bare `import "./x.js"`). The deploy's cache-busting stamps only that form; anything else loads a module twice, with two copies of its state. `CUR` is set through `setCur()`.

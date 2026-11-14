@@ -4,7 +4,7 @@ Detailed reference, split out of `CLAUDE.md` to keep that file lean. Read the se
 
 - [Data pipeline (`fetch.py`)](#data-pipeline-fetchpy)
 - [Analysis (`analysis.js`)](#analysis-analysisjs)
-- [Pages and features (`app.js`)](#pages-and-features-appjs)
+- [Pages and features](#pages-and-features)
 - [Laptop one-screen layout](#laptop-one-screen-layout)
 - [Research flow and workflow](#research-flow-and-workflow)
 
@@ -88,7 +88,9 @@ Peer methods are left out with < 4 usable peers or when the middle-half multiple
 - `dividendStory()`: everything on the Dividends tab. It flags specials (well above the payments around them; one lumped with a regular payment is split) and Yahoo glitches (a lone tiny payment), and reads each payment's yearly rate from the next few gaps (a missing payment or a yearly→quarterly switch isn't a cut). Raise streak = a chain of raises ≤ 18 months apart (calendar years break when a raise shifts years). 5 safety checks; thresholds match the glossary `cashPayout`/`dividendGrowth`/`dividendStreak` rules and reuse `judge("payoutRatio"/"netDebtToEbitda")`.
 - `moneyShort()`: amounts like $175K / $1.4M.
 
-## Pages and features (`app.js`)
+## Pages and features
+
+One ES module per page and per tab (see CLAUDE.md's map); imports between them are circular, which is fine because top-level code only runs function declarations and local constants. Keep it that way: a top-level `const` that reads another module's `const` can hit it before it's initialized.
 
 Hash router: `#/`, `#/t/SYM/<tab>`, `#/ideas`, `#/learn`, `#/settings`. Equity tabs: Summary, Walkthrough, Earnings, Financials, Dividends, Valuation, Peers, Analysts, News. ETF tabs: Summary, Walkthrough, Holdings, Dividends, News. Tiny `h()` DOM builder.
 
@@ -100,7 +102,7 @@ Hash router: `#/`, `#/t/SYM/<tab>`, `#/ideas`, `#/learn`, `#/settings`. Equity t
 
 **Rule-of-thumb badges.** `renderTicker` sets module-level `CUR` (cleared in `route()`); `termBtn(key)` appends a thumb from `A.judge(key, CUR)`. The popover and glossary sheet show the same verdict (`judgeBox`). The sheet and each Learn-page entry (built on first open) also list every active ticker via `examplesBox()`: grouped passes / in between / fails, the current ticker highlighted.
 
-**Hover popovers.** On `(hover: hover) and (pointer: fine)`, elements with `data-term` or `data-tip`/`data-tip-title` show a popover (delegated listeners near the end of `app.js`). Click still opens the bottom sheet.
+**Hover popovers.** On `(hover: hover) and (pointer: fine)`, elements with `data-term` or `data-tip`/`data-tip-title` show a popover (delegated listeners in `sheets.js`). Click still opens the bottom sheet.
 
 **Since you last looked.** Opening a ticker stores `A.fingerprint()` in localStorage (`stockdash.seen.<SYM>`). When the data's `updated` differs, `changesSince()` lists what moved. The banner above the tabs keeps showing it (from `prev`) until "Got it". Home cards show "N new" for data not yet opened. Browser-only.
 
@@ -118,9 +120,9 @@ Hash router: `#/`, `#/t/SYM/<tab>`, `#/ideas`, `#/learn`, `#/settings`. Equity t
 
 ## Laptop one-screen layout
 
-`app.js` toggles `html.dash-on` at `(min-width:1100px) and (min-height:600px)`. Each tab builds cards inside `grid(name, flow)` (`.cols.dash.dash-<name>`), and `card(title, { area })` sets a `--area` CSS variable that becomes `grid-area` only under `html.dash-on`. Setting `grid-area` directly breaks the phone layout. Per-tab `grid-template-areas` live in `styles.css`.
+`core.js` toggles `html.dash-on` at `(min-width:1100px) and (min-height:600px)`. Each tab builds cards inside `grid(name, flow)` (`.cols.dash.dash-<name>`), and `card(title, { area })` sets a `--area` CSS variable that becomes `grid-area` only under `html.dash-on`. Setting `grid-area` directly breaks the phone layout. Per-tab `grid-template-areas` live in `styles.css`.
 
-`fitDash()` gives each non-flow `.dash` a **min-height** of the window (and `--dash-h`), so cards grow instead of scrolling internally. The user dislikes "windowed scrolling". Only long lists opt in, with `scroll-full`; others use a first batch plus "Show all" (`showMore()` in `app.js`).
+`fitDash()` gives each non-flow `.dash` a **min-height** of the window (and `--dash-h`), so cards grow instead of scrolling internally. The user dislikes "windowed scrolling". Only long lists opt in, with `scroll-full`; others use a first batch plus "Show all" (`showMore()` in `core.js`).
 
 Card content sits in `.card-body`, so sticky table headers stay flush. Earnings and Peers use flowing grids. Earnings and Financials charts use fixed heights (the user found filled charts too big). `fill: true` charts take their container's height, with the SVG absolutely positioned. `dash-hide` cards are hidden on laptop. Valuation keeps the Bear/Base/Bull buttons on top and the sliders collapsed at the bottom.
 
