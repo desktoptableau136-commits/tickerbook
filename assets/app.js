@@ -1018,6 +1018,7 @@ function fundSummary(d, body) {
 }
 
 // ---------------------------------------------------------------- earnings
+const FILING_SUMMARY_8K = "Companies must file one within four business days of anything important. Item 9.01 (attached documents) is left out.";
 function tabEarnings(d, body) {
   const e = d.earnings;
   const story = A.earningsStory(d);
@@ -1149,6 +1150,28 @@ function releasePoint(q, fl) {
           });
         })()),
       h("a", { class: "small", href: fl.url, target: "_blank", rel: "noopener noreferrer" }, "Read the full press release on SEC.gov ›")));
+  }
+
+  // ---- the company's own filings
+  const src = A.filingSources(d);
+  if (src) {
+    const fd = (x) => A.date(x, { month: "short", day: "numeric", year: "numeric" });
+    const main = src.rows.filter((r) => r.kind !== "event"), events = src.rows.filter((r) => r.kind === "event");
+    const link = (r, text) => h("a", { href: r.url, target: "_blank", rel: "noopener noreferrer" }, text);
+    g.append(card("Read the originals", { area: "sources", class: "span", term: "secFilings",
+      sub: "The company's own filings with the SEC, the US market regulator. This dashboard's numbers come from Yahoo Finance, which is unofficial; these are the source." },
+      h("div", { class: "sources" },
+        h("div", {}, main.map((r) => h("div", { class: "source" },
+          h("div", {}, h("b", {}, link(r, `${r.name} (${r.form})`)), h("span", { class: "muted small" }, ` · filed ${fd(r.filed)}${r.period && r.kind !== "proxy" ? `, covering to ${fd(r.period)}` : ""}`)),
+          h("p", { class: "small ink2" }, r.what)))),
+        events.length ? h("div", {}, h("h3", {}, "Recent news filings (8-K)"),
+          h("p", { class: "muted small", style: "margin:0 0 6px" }, FILING_SUMMARY_8K),
+          events.map((r) => h("div", { class: "source" },
+            h("div", {}, link(r, fd(r.filed)), r.serious ? h("span", {}, " ", pill("bad", "Worth a look")) : null),
+            h("p", { class: "small ink2" }, r.said || "No item numbers listed.", r.items.length ? h("span", { class: "muted" }, ` (item${r.items.length > 1 ? "s" : ""} ${r.items.join(", ")})`) : null)))) : null),
+      h("p", { class: "small", style: "margin:10px 0 0" },
+        h("a", { href: src.edgar, target: "_blank", rel: "noopener noreferrer" }, "Every filing on SEC EDGAR ›"),
+        d.profile?.website ? [" · ", h("a", { href: d.profile.website, target: "_blank", rel: "noopener noreferrer" }, "Company website (look for Investors) ›")] : null)));
   }
 
   const n = A.nextEarningsText(d);

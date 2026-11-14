@@ -760,18 +760,57 @@ def sentences(text: str):
                 yield snt
 
 
-def sec_earnings_release(symbol: str):
-    """Latest 8-K with Item 2.02 (results of operations): the company's own press release."""
+_subs = {}
+
+
+def sec_submissions(symbol: str):
+    """(CIK, recent filings) from EDGAR, fetched once per run per company; None without SEC_USER_AGENT."""
     global _cik_map
     if not SEC_UA:
         return None
-    if _cik_map is None:
-        raw = sec_get("https://www.sec.gov/files/company_tickers.json")
-        _cik_map = {v["ticker"].upper(): int(v["cik_str"]) for v in raw.values()}
-    cik = _cik_map.get(symbol.upper()) or _cik_map.get(symbol.upper().replace(".", "-"))
-    if not cik:
+    if symbol not in _subs:
+        if _cik_map is None:
+            raw = sec_get("https://www.sec.gov/files/company_tickers.json")
+            _cik_map = {v["ticker"].upper(): int(v["cik_str"]) for v in raw.values()}
+        cik = _cik_map.get(symbol.upper()) or _cik_map.get(symbol.upper().replace(".", "-"))
+        _subs[symbol] = (cik, sec_get(f"https://data.sec.gov/submissions/CIK{cik:010d}.json")["filings"]["recent"]) if cik else None
+    return _subs[symbol]
+
+
+# Which filings the "Read the originals" card links to: the latest of each kind, newest first.
+SOURCE_FORMS = [
+    ("annual", ("10-K", "20-F", "40-F")),
+    ("quarterly", ("10-Q",)),
+    ("proxy", ("DEF 14A",)),
+    ("prospectus", ("424B4", "S-1", "F-1")),  # only companies that listed within EDGAR's recent list
+]
+
+
+def sec_sources(symbol: str):
+    """Links to the company's own filings on SEC.gov: latest annual/quarterly report, proxy,
+    IPO prospectus if recent, and the last few 8-Ks with their item numbers."""
+    got = sec_submissions(symbol)
+    if not got:
         return None
-    sub = sec_get(f"https://data.sec.gov/submissions/CIK{cik:010d}.json")["filings"]["recent"]
+    cik, sub = got
+    link = lambda i: f"https://www.sec.gov/Archives/edgar/data/{cik}/{sub['accessionNumber'][i].replace('-', '')}/{sub['primaryDocument'][i]}"
+    row = lambda i, kind: {"kind": kind, "form": sub["form"][i], "filed": sub["filingDate"][i],
+                           "period": sub["reportDate"][i] or None, "items": sub["items"][i] or None, "url": link(i)}
+    out = []
+    for kind, forms in SOURCE_FORMS:
+        i = next((i for i, f in enumerate(sub["form"]) if f in forms), None)
+        if i is not None:
+            out.append(row(i, kind))
+    out += [row(i, "event") for i, f in enumerate(sub["form"]) if f == "8-K"][:4]
+    return {"cik": cik, "edgar": f"https://www.sec.gov/edgar/browse/?CIK={cik}", "filings": out}
+
+
+def sec_earnings_release(symbol: str):
+    """Latest 8-K with Item 2.02 (results of operations): the company's own press release."""
+    got = sec_submissions(symbol)
+    if not got:
+        return None
+    cik, sub = got
     pick = None
     for i, form in enumerate(sub["form"]):
         if form in ("8-K", "8-K/A") and "2.02" in (sub["items"][i] or ""):
@@ -879,6 +918,7 @@ def build(symbol: str, tag: str):
     if kind == "EQUITY":
         # the press release changes once a quarter, so keep the last good copy if the SEC is unreachable
         d["filing"] = quiet(lambda: sec_earnings_release(symbol), None) or old_d.get("filing")
+        d["sources"] = quiet(lambda: sec_sources(symbol), None) or old_d.get("sources")
     snap = snapshot(d)
     hist = [h for h in hist if h.get("date") != snap["date"]] + [snap]
     d["history"] = hist[-HISTORY_KEEP:]

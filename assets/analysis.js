@@ -1601,6 +1601,38 @@ export function earningsQuality(d) {
   return { checks: out, tone, label, judged: judged.length };
 }
 
+// "Read the originals": the company's own SEC filings (d.sources from fetch.py's sec_sources()),
+// each with a plain-English name and what it's for. 8-K item numbers say what the news was.
+const FILING_KINDS = {
+  annual: { name: "Annual report", what: "The full-year story in the company's own words: the business, its risks, and audited financial statements. The most complete document a company publishes." },
+  quarterly: { name: "Quarterly report", what: "The latest quarter's financial statements (not audited) and management's discussion of what changed." },
+  proxy: { name: "Proxy statement", what: "Sent before the yearly shareholder vote: how much the executives are paid and why, who sits on the board, and what owners are asked to vote on." },
+  prospectus: { name: "IPO prospectus", what: "Written when the company first sold shares to the public: the business, its risks and its finances, before any analyst coverage existed." },
+  event: { name: "News filing", what: "Filed within days of anything important. The item numbers say what kind of news it was." },
+};
+const EIGHT_K_ITEMS = {
+  "1.01": "signed a major agreement", "1.02": "ended a major agreement", "1.05": "reported a cybersecurity incident",
+  "2.01": "completed an acquisition or sale", "2.02": "reported quarterly results", "2.03": "took on new debt",
+  "2.05": "announced restructuring costs", "2.06": "wrote down an asset's value", "3.01": "got a stock-exchange listing notice",
+  "3.02": "sold new shares privately", "4.01": "changed its auditor", "4.02": "said past financial statements can't be relied on",
+  "5.01": "had a change in control", "5.02": "had an executive or director leave or join", "5.03": "changed its bylaws",
+  "5.07": "reported a shareholder vote", "7.01": "shared information with investors", "8.01": "reported other news",
+};
+// Items that deserve a closer look (shown as a pill, so the color always comes with a word).
+const SERIOUS_ITEMS = new Set(["1.05", "2.06", "3.01", "4.01", "4.02", "5.01"]);
+export function filingSources(d) {
+  const s = d.sources;
+  if (!s?.filings?.length) return null;
+  const rows = s.filings.map((f) => {
+    const k = FILING_KINDS[f.kind] || { name: f.form, what: "" };
+    const items = (f.items || "").split(",").map((x) => x.trim()).filter((x) => x && x !== "9.01");
+    const said = items.map((x) => EIGHT_K_ITEMS[x]).filter(Boolean);
+    return { ...f, name: k.name, what: k.what, items, serious: items.some((x) => SERIOUS_ITEMS.has(x)),
+      said: said.length ? `It ${said.length > 1 ? `${said.slice(0, -1).join(", ")} and ${said[said.length - 1]}` : said[0]}.` : null };
+  });
+  return { edgar: s.edgar, rows };
+}
+
 export function cashUses(d, years = 4) {
   const rows = (d.financials?.annual || []).filter((r) => isNum(r.freeCashflow)).slice(-years);
   if (rows.length < 2) return null;

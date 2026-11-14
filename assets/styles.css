@@ -303,6 +303,11 @@ td.sym a { font-weight: 700; color: var(--ink); }
 .score-moves { display: grid; gap: 10px; margin: 6px 0 12px; }
 .score-move ul { margin: 4px 0 0; padding-left: 18px; }
 .score-move li + li { margin-top: 2px; }
+/* "Read the originals" (Earnings tab): two columns on wider screens */
+.sources { display: grid; gap: 4px 32px; }
+.source { padding: 8px 0; border-top: 1px solid var(--border); }
+.source p { margin: 2px 0 0; }
+@media (min-width: 960px) { .sources { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .sources h3 { margin-top: 0; } }
 /* math lines under a check ("Are the profits real?") */
 .signal .body .steps { margin: 6px 0 8px; padding-left: 18px; }
 .signal .body .steps li + li { margin-top: 2px; }
@@ -604,8 +609,8 @@ html.dash-on .dash-summary .signals { grid-template-columns: 1fr; }
 
 html.dash-on .dash-earnings {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: auto auto auto auto auto;
-  grid-template-areas: "story story eps" "story story next" "hist hist hist" "filing filing filing" "expect expect trend";
+  grid-template-rows: auto auto auto auto auto auto;
+  grid-template-areas: "story story eps" "story story next" "hist hist hist" "filing filing filing" "expect expect trend" "sources sources sources";
   align-items: stretch;
 }
 html.dash-on .dash-earnings .story { display: block; columns: 2; column-gap: 26px; }

@@ -485,6 +485,13 @@ export const GLOSSARY = {
     why: "Inventory growing much faster than sales can mean demand is slowing, which often leads to discounts and lower margins later. It can also be deliberate stocking up for expected growth, so read the company's explanation.",
     rule: "Growing up to 10 points faster than sales is fine; 10–25 points faster is worth watching; over 25 points is a red flag (softened when a big acquisition explains it). Skipped when it's under 5% of a year's sales.",
   },
+  secFilings: {
+    term: "SEC filings (primary sources)",
+    short: "The documents US-listed companies must file with the SEC, the market regulator.",
+    what: "The main ones: the 10-K (annual report, audited), the 10-Q (quarterly report), the 8-K (news, filed within four business days), the proxy statement (DEF 14A: executive pay and shareholder votes) and, for a new listing, the IPO prospectus (S-1). All are free on the SEC's EDGAR site.",
+    why: "They're the source every data site, analyst and headline works from, and the company is legally responsible for what's in them. Reading the original is the best check on anything you see summarized elsewhere, including on this dashboard.",
+    rule: "Start with the 10-K's \"Risk factors\" and \"Management's discussion\" sections. In an 8-K, look closely at items 4.01 (auditor changed) and 4.02 (past results can't be relied on).",
+  },
   scoreHistory: {
     term: "Score over time",
     short: "This dashboard's checklist score for each day it has data.",
