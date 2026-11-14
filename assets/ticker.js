@@ -3,7 +3,7 @@ import * as A from "./analysis.js";
 import * as GH from "./github.js";
 import { lineChart, legend } from "./charts.js";
 import { tabAnalysts } from "./analysts.js";
-import { arrow, card, changesBanner, h, isNum, logo, pref, rich, setCur, signClass, state, tagIcon, termBtn, tickers, view } from "./core.js";
+import { arrow, card, changesBanner, h, isNum, logo, pill, pref, rich, setCur, signClass, state, tagIcon, termBtn, tickers, view } from "./core.js";
 import { tabDividends } from "./dividends.js";
 import { tabEarnings } from "./earnings.js";
 import { tabFinancials } from "./financials.js";
@@ -11,6 +11,7 @@ import { tabHoldings } from "./holdings.js";
 import { tabNews } from "./news.js";
 import { tabPeers } from "./peers.js";
 import { openResearch, openTickerMenu } from "./research.js";
+import { closeSheet, openSheet, sheetHead } from "./sheets.js";
 import { tabSummary } from "./summary.js";
 import { tabValuation } from "./valuation.js";
 import { tabWalk } from "./walkthrough.js";
@@ -46,7 +47,7 @@ export function renderTicker(sym, tab) {
       h("div", { class: "qprice" },
         h("span", { class: "big tnum" }, A.price(d.quote.price)),
         h("span", { class: `chg tnum ${signClass(d.quote.change)}` }, `${arrow(d.quote.change)} ${A.money(Math.abs(d.quote.change ?? 0), { compact: false })} (${A.pct(d.quote.changePct, { digits: 2, sign: true })})`)),
-      h("div", { class: "muted small" }, `Last close ${d.quote.marketTime ? A.date(d.quote.marketTime) : ""} · updated ${A.ago(d.updated)}`)),
+      h("div", { class: "muted small" }, `Last close ${d.quote.marketTime ? A.date(d.quote.marketTime) : ""} · updated ${A.ago(d.updated)} · `, freshLink(d))),
     GH.connected() ? h("button", { class: "icon-btn qmenu", type: "button", "aria-label": "Ticker options", title: "Options", on: { click: () => openTickerMenu(d) } },
       h("span", { "aria-hidden": "true", style: "font-size:22px;line-height:1", text: "⋯" })) : null);
 
@@ -84,6 +85,26 @@ function dropNote(d) {
     h("b", {}, "⚠ Big drop: "), `down ${A.pct(-dr.change, { digits: 0 })} in a month (${A.price(dr.from)} on ${A.date(dr.fromDate)} → ${A.price(d.quote.price)}). `,
     "The score is built from reported results and analyst forecasts, which take weeks to catch up with news, and a falling price makes valuation and target upside look better. So the score probably looks rosier than things are. ",
     h("a", { href: `#/t/${d.symbol}/news` }, "Read the news ›"));
+}
+
+// How fresh each part of the data is. The header link turns into a warning when a section is
+// stale or Yahoo sent it back empty; the sheet lists every section with its own date.
+const FRESH = { good: ["good", "Current"], warn: ["ok", "Stale"], missing: ["bad", "Missing"] };
+function freshLink(d) {
+  const rows = A.freshness(d), bad = rows.filter((r) => r.tone !== "good");
+  return h("button", { class: `linkish small${bad.length ? " fresh-warn" : ""}`, type: "button", on: { click: () => openFreshness(d, rows) } },
+    bad.length ? `⚠ ${bad.length} section${bad.length > 1 ? "s" : ""} stale or missing ›` : "How fresh is this? ›");
+}
+function openFreshness(d, rows) {
+  const names = Object.fromEntries([...EQUITY_TABS, ...FUND_TABS]);
+  openSheet((s) => s.append(sheetHead(`How fresh is ${d.symbol}'s data?`),
+    h("p", { class: "muted small", style: "margin-top:0" }, "Each part has its own clock: prices change daily, results once a quarter, filings whenever the company files. Everything is re-read from Yahoo and the SEC on each weekday update."),
+    h("ul", { class: "fresh-list" }, rows.map((r) => h("li", {},
+      h("div", { class: "fresh-row" },
+        h("a", { href: `#/t/${d.symbol}/${r.tab}`, on: { click: closeSheet }, "aria-label": `${r.label}, on the ${names[r.tab] || r.tab} tab` }, r.label),
+        pill(...FRESH[r.tone])),
+      h("div", { class: "muted small" }, r.asOf),
+      r.note ? h("div", { class: "small fresh-note" }, r.note) : null)))));
 }
 
 // "Looks off": numbers too far out to be real (A.dataChecks). Each shows on its own tab; Summary

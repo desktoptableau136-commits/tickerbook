@@ -1050,6 +1050,58 @@ export function dataChecks(d) {
   return out;
 }
 
+// ------------------------------------------------------------------ how fresh is each section
+// Each part of a ticker's data has its own clock: prices are daily, results quarterly, filings
+// whenever the company files. Yahoo also sometimes sends a section back empty, and the page would
+// otherwise just look blank. Rows: { label, tab, asOf, tone: "good" | "warn" | "missing", note }.
+export const STALE_DAYS = { price: 4, update: 3, quarter: 140 };
+const daysAgo = (iso, now) => (iso ? (now - new Date(iso).getTime()) / 864e5 : null);
+const newest = (xs, key = "date") => (xs || []).map((x) => x?.[key]).filter(Boolean).sort().pop() || null;
+export function freshness(d, now = Date.now()) {
+  const rows = [], eq = d.type !== "ETF";
+  const row = (label, tab, asOf, tone = "good", note = null) => rows.push({ label, tab, asOf, tone, note });
+  const missing = (label, tab, note) => row(label, tab, "Not sent", "missing", note);
+  const q = d.quote || {};
+  const pAge = daysAgo(q.marketTime, now);
+  row("Price", "summary", q.marketTime ? `${date(q.marketTime)} close` : "Unknown",
+    pAge == null || pAge > STALE_DAYS.price ? "warn" : "good",
+    pAge > STALE_DAYS.price ? `Yahoo's last price is ${Math.floor(pAge)} days old. Markets may have been closed for a holiday, or the stock may have stopped trading.` : null);
+  const uAge = daysAgo(d.updated, now);
+  row("Last update", "summary", ago(d.updated), uAge > STALE_DAYS.update && d.tag !== "archived" ? "warn" : "good",
+    uAge > STALE_DAYS.update && d.tag !== "archived" ? `The daily update hasn't refreshed this since ${date(d.updated)}. Check the Actions tab on GitHub.` : null);
+  if (eq) {
+    const qs = d.financials?.quarterly || [], lastQ = newest(qs, "period");
+    if (!lastQ) missing("Quarterly results", "financials", "Yahoo sent no quarterly statements on the last update, so the Financials charts are empty until a later update has them.");
+    else {
+      const qAge = daysAgo(lastQ, now);
+      row("Quarterly results", "financials", `Quarter ended ${date(lastQ)}`, qAge > STALE_DAYS.quarter ? "warn" : "good",
+        qAge > STALE_DAYS.quarter ? `That quarter ended ${Math.floor(qAge)} days ago. Companies report within about 45 days (90 for the year-end report), so a newer one should be out, and Yahoo hasn't picked it up yet.` : null);
+    }
+    const reported = (d.earnings?.history || []).filter((x) => isNum(x.epsActual));
+    if (!reported.length) missing("Earnings reports", "earnings", "Yahoo sent no earnings history, so the beat/miss record is empty and that check isn't scored.");
+    else row("Earnings reports", "earnings", `Last report ${date(newest(reported))}${d.earnings?.next?.date ? ` · next ${date(d.earnings.next.date)}` : ""}`);
+    const est = d.earnings?.epsTrend || [];
+    if (!est.length) missing("Analyst estimates", "earnings", "Yahoo sent no earnings estimates, so the estimate trend isn't scored.");
+    else row("Analyst estimates", "earnings", "Current as of the last update");
+    const t = d.analysts?.targets || {};
+    if (!isNum(t.median) && !isNum(t.mean)) missing("Analyst targets", "analysts", "Yahoo sent no price targets, so target upside and that valuation method are left out.");
+    else row("Analyst targets", "analysts", `${isNum(d.analysts.count) ? `${d.analysts.count} analysts` : "Targets"}${newest(d.analysts.actions) ? ` · latest rating change ${date(newest(d.analysts.actions))}` : ""}`);
+    if (!d.sources?.filings?.length) missing("SEC filings", "earnings", "The SEC's filing list didn't come through, so \"Read the originals\" has no links yet.");
+    else row("SEC filings", "earnings", `Latest filed ${date(newest(d.sources.filings, "filed"))}`);
+    if (!(d.peers?.list || []).length) missing("Peers", "peers", "Yahoo sent no industry peers, so the Peers tab and the peer valuation methods are empty.");
+    else row("Peers", "peers", `${d.peers.list.length} companies, current as of the last update`);
+  } else {
+    if (!(d.fund?.holdings || []).length) missing("Holdings", "holdings", "Yahoo sent no holdings list, so the Holdings tab is empty.");
+    else row("Holdings", "holdings", "Yahoo's latest list (funds report holdings monthly or quarterly)");
+  }
+  if (d.dividends == null) missing("Dividends", "dividends", "Yahoo's dividend data didn't come through, and there was no earlier copy to keep.");
+  else if (d.dividends.pays && d.dividends.payments?.length) row("Dividends", "dividends", `Last paid ${date(newest(d.dividends.payments))}`);
+  else row("Dividends", "dividends", "Doesn't pay one");
+  if (!(d.news || []).length) missing("News", "news", "Yahoo sent no headlines on the last update.");
+  else row("News", "news", `Newest headline ${date(newest(d.news))}`);
+  return rows;
+}
+
 export function blend(methods, included) {
   const vals = methods.filter((x) => included[x.id] && isNum(x.value)).map((x) => x.value);
   if (!vals.length) return null;
