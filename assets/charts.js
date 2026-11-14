@@ -92,7 +92,11 @@ export function lineChart(container, opts) {
     if (refLine != null) all.push(refLine);
     let mn = Math.min(...all), mx = Math.max(...all);
     const pad = (mx - mn) * 0.06 || 1;
-    let { lo, hi, ticks } = niceTicks(mn - pad, mx + pad, height < 170 ? 2 : height < 240 ? 3 : 4);
+    // optional fixed axis (e.g. 0–100 for the score, so a small move doesn't fill the chart)
+    if (opts.yRange) { mn = Math.min(mn, opts.yRange[0]); mx = Math.max(mx, opts.yRange[1]); }
+    let { lo, hi, ticks } = opts.yRange && mn === opts.yRange[0] && mx === opts.yRange[1]
+      ? niceTicks(mn, mx, height < 170 ? 2 : height < 240 ? 3 : 4)
+      : niceTicks(mn - pad, mx + pad, height < 170 ? 2 : height < 240 ? 3 : 4);
     // optional ceiling (e.g. 0% for "drop from peak" charts, which can never go above it)
     if (opts.yMax != null && hi > opts.yMax) { hi = opts.yMax; ticks = ticks.filter((t) => t <= hi + 1e-9); }
     const n = dates.length;

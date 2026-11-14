@@ -103,7 +103,7 @@ function tickers() {
   return (state.index?.tickers || []).map((t) => ({ ...t, d: state.data[t.symbol] })).filter((t) => t.d);
 }
 function signalsFor(d) {
-  return d.type === "ETF" ? A.fundSignals(d, tickers().map((t) => t.symbol).filter((s) => s !== d.symbol)) : A.equitySignals(d);
+  return A.signalsOf(d, tickers().map((t) => t.symbol));
 }
 
 // ================================================================ since your last look
@@ -794,11 +794,63 @@ function verdictCard(d) {
         h("div", { class: "muted small" }, "The quick read"),
         h("h2", {}, ov.lean),
         h("div", { class: "ink2 small" }, `${ov.good} of ${ov.total} signals positive${ov.bad ? `, ${ov.bad} negative` : ""}`),
-        ov.score != null ? h("div", { class: "muted small tnum" }, `${fmtPts(ov.earned)} of ${fmtPts(ov.possible)} points = ${ov.score}`) : null)),
+        ov.score != null ? h("div", { class: "muted small tnum" }, `${fmtPts(ov.earned)} of ${fmtPts(ov.possible)} points = ${ov.score}`) : null,
+        ov.score != null ? scoreTrend(d) : null)),
     summary ? h("p", { class: "verdict-sum" }, summary) : null,
     split ? h("p", { class: "verdict-sum split" }, rich(split)) : null,
     h("div", { class: "signals" }, groups),
     h("p", { class: "muted small", style: "margin:10px 0 0" }, h("span", { class: "only-touch" }, "Tap a row for what it means and how it's scored. "), h("span", { class: "only-hover" }, "Hover a row for what it means; click it for how it's scored. "), "Each check earns 0 to 1 on a sliding scale, and business checks weigh more than mood checks (analyst targets, price trend). The bars split the same points into business, price and mood; they add up to the score. It's a checklist, not a prediction. ", h("a", { href: `#/t/${d.symbol}/walk` }, "New to this? Walk through it step by step ›")));
+}
+
+// ---- score over time (data/scores/<SYM>.json, written by scripts/score_history.mjs)
+// Fetched once per ticker when its Summary opens; a missing file just means no history yet.
+function loadScores(sym) {
+  state.scores ??= {};
+  return (state.scores[sym] ??= fetchJSON(`data/scores/${sym}.json`).catch(() => null));
+}
+// Saved days before today's data, plus today's point computed here, so the line always ends on the
+// same score as the ring (even right after a rule change, before the next update rescores the past).
+function scoreSeries(d, file) {
+  const today = A.scorePoint(d, tickers().map((t) => t.symbol));
+  return [...(file?.points || []).filter((p) => p.date < today.date && p.score != null), today];
+}
+function scoreTrend(d) {
+  const box = h("div", { class: "score-trend small" });
+  loadScores(d.symbol).then((file) => {
+    const pts = scoreSeries(d, file);
+    if (pts.length < 2) { box.append(h("span", { class: "muted" }, "Score history starts with the next daily update.")); return; }
+    const first = pts[0], last = pts[pts.length - 1], diff = last.score - first.score;
+    box.append(h("span", { html: sparkline(pts.map((p) => p.score), { width: 64, height: 20 }) }),
+      h("span", { class: "ink2 tnum" }, `${diff > 0 ? `Up ${diff}` : diff < 0 ? `Down ${-diff}` : "Unchanged"} since ${A.date(first.date, { month: "short", day: "numeric" })}`),
+      h("button", { class: "linkish small", type: "button", on: { click: () => openScoreSheet(d, file, pts) } }, "How it moved ›"));
+  });
+  return box;
+}
+const ST_WORD = { g: "green", o: "amber", b: "red", n: "not judged" };
+function openScoreSheet(d, file, pts) {
+  const labels = Object.fromEntries(signalsFor(d).map((s) => [s.key, s.label]));
+  const kind = d.type === "ETF" ? "fund" : "equity";
+  const moves = A.scoreMoves(pts, kind).filter((m) => m.diff !== 0 || m.why.length).reverse();
+  const fd = (s) => A.date(s, { month: "short", day: "numeric" });
+  const sign = (x) => `${x > 0 ? "+" : x < 0 ? "−" : "±"}${Math.abs(x).toFixed(Math.abs(x) < 1 ? 1 : 0)}`;
+  const reason = (w) => {
+    const l = labels[w.key] || w.key;
+    if (w.flip) return `${l} ${w.toSt === "n" ? "couldn't be judged, so it left the score" : "could be judged again, so it rejoined the score"}.`;
+    return `${l}: ${w.from.toFixed(2)} → ${w.to.toFixed(2)} of its points${w.fromSt !== w.toSt ? ` (${ST_WORD[w.fromSt]} → ${ST_WORD[w.toSt]})` : ""}, about ${sign(w.pts)}.`;
+  };
+  const c = h("div", {});
+  openSheet((s) => s.append(...[sheetHead(`${d.symbol} score over time`),
+    h("p", { class: "ink2" }, `One point per day of data (${pts.length} so far, from ${fd(pts[0].date)}). Every past day is rescored with today's rules, so the line moves only when ${A.shortName(d)}'s numbers or the market moved, never because the rules changed. 70+ reads Strong, 45–69 Mixed. `, qmark("scoreHistory")),
+    file && file.version !== A.SCORE_VERSION ? h("p", { class: "muted small" }, "The rules changed since the last update, so the past days will be rescored at the next one. Today's point already uses the new rules.") : null,
+    c,
+    h("h3", {}, "What moved it"),
+    moves.length ? h("div", { class: "score-moves" }, moves.map((m) => h("div", { class: "score-move" },
+      h("div", { class: "tnum" }, h("b", {}, `${fd(m.prev)} → ${fd(m.date)}: `), `${m.from} → ${m.to} (${m.diff > 0 ? "+" : m.diff < 0 ? "−" : "±"}${Math.abs(m.diff)})`),
+      m.why.length ? h("ul", {}, m.why.map((w) => h("li", { class: "small ink2" }, reason(w)))) : h("p", { class: "small muted" }, "Tiny shifts in several checks, none worth listing.")))) : h("p", { class: "muted" }, "No moves yet."),
+    h("p", { class: "muted small" }, "A check's points × its weight, as a share of the day's total, gives its part of the move. Rounding means the parts may not add up exactly. Not financial advice.")].filter(Boolean)), { cls: "wide" });
+  requestAnimationFrame(() => lineChart(c, { dates: pts.map((p) => p.date), series: [{ name: "Score", values: pts.map((p) => p.score), color: "var(--series-1)" }],
+    yRange: [0, 100], yFormat: (v) => v.toFixed(0), xFormat: (s) => fd(s), tipTitle: (s) => A.date(s), area: false, height: 200, ariaLabel: `${d.symbol} checklist score by day`,
+    tipLabel: (i) => Object.entries(pts[i].parts || {}).map(([k, v]) => `${k[0].toUpperCase()}${k.slice(1)} ${v ?? "—"}`).join(" · ") }));
 }
 
 // A part's heading: name, a bar filled to its share of its own points, and the points.
@@ -1204,6 +1256,17 @@ function tabFinancials(d, body) {
         h("div", { class: "small", style: "font-weight:600" }, `Why ${A.times(levNotes.lev.ratio)} may not match what ${A.shortName(d)} reports`),
         levNotes.lines.map((t) => h("p", { class: "small ink2" }, rich(t))),
         levNotes.company?.text ? h("p", { class: "small muted" }, "From the release: “", levNotes.company.text, "”") : null) : null));
+
+    const eq = A.earningsQuality(d);
+    if (eq) g.append(card("Are the profits real?", { area: "quality", term: "earningsQuality", right: pill(eq.tone, eq.label),
+      sub: "Five warning signs that profit isn't turning into real value for owners · not part of the score" },
+      h("div", { class: "signals one" }, eq.checks.map((c) => h("details", { class: "signal" },
+        h("summary", {}, h("span", { class: "lbl" }, h("span", { class: "has-tip", "data-tip": c.text, "data-tip-title": `${c.label}: ${c.word}` }, c.label)), h("span", { class: "val" }, c.value), pill(c.status, c.word)),
+        h("div", { class: "body" }, h("p", {}, c.text),
+          c.steps.length ? h("ul", { class: "steps small muted tnum" }, c.steps.map((t) => h("li", {}, t))) : null,
+          GLOSSARY[c.term] ? h("button", { class: "linkish small", type: "button", on: { click: () => openTerm(c.term) } }, `What's ${GLOSSARY[c.term].term.toLowerCase()}?`) : null)))),
+      h("p", { class: "muted small", style: "margin:10px 0 0" }, h("span", { class: "only-touch" }, "Tap a row for the math. "), h("span", { class: "only-hover" }, "Hover or click a row for the math. "),
+        "One sign alone is rarely proof: treat these as questions to ask. They don't change the checklist score.")));
 
     const cu = A.cashUses(d);
     if (cu) {

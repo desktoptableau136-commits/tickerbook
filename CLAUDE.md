@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## What this is
 
 Tickerbook: a personal, mobile-first stock watchlist dashboard for a long-term investor learning the jargon, so plain-English explanations are a core feature. It's a static site (plain HTML/CSS/ES modules, **no build step, no npm, no framework**) on GitHub Pages. Data is pre-fetched by `scripts/fetch.py` (yfinance) in GitHub Actions, not fetched live.
@@ -18,11 +16,12 @@ python -m venv .venv; .venv\Scripts\python -m pip install -r requirements.txt
 gh workflow run update.yml -f action=refresh                            # refresh the live data (a push only deploys)
 ```
 
-There are no tests or linters. Verify UI changes in a browser at both ~1440px and 390px (see Gotchas). VOO prints `HTTP Error 404 ... No fundamentals data` during fetch; that's expected. A local fetch rewrites `data/`. Reset it (`git checkout -- data/`) before committing code, and let Actions refresh it.
+There are no tests or linters. Verify UI changes in a browser at both ~1440px and 390px (see Gotchas). A local fetch rewrites `data/`. Reset it (`git checkout -- data/`) before committing code, and let Actions refresh it.
 
 ## Map
 
 - `watchlist.json` → `scripts/fetch.py` → `data/<SYM>.json`, `_bench.json`, `_ideas.json`, `logos/`, `index.json`, `last_request.json` → browser.
+- `scripts/score_history.mjs` (Actions only) rescores each day's data file from git history → `data/scores/<SYM>.json`.
 - `assets/app.js`: router, every page and tab, sheets, popovers, research task.
 - `assets/analysis.js`: pure functions (signals, valuation, plain-English text, feature helpers).
 - `assets/charts.js`: hand-rolled SVG charts.
@@ -36,6 +35,7 @@ There are no tests or linters. Verify UI changes in a browser at both ~1440px an
 - `judge()` thresholds ↔ the glossary `rule` text.
 - `SCREEN_RULES` in `fetch.py`: each rule's text ↔ its query (the Ideas page shows the text).
 - `debtPicture()` names valuation methods by number.
+- Bump `SCORE_VERSION` in `analysis.js` when the score formula changes, or "since you last looked" reports it as news.
 - Dark mode is defined twice in `styles.css` (`prefers-color-scheme` block guarded by `:not([data-theme="light"])`, and `[data-theme="dark"]`). Change both.
 - Laptop grid placement goes through `card(title, { area })` → `--area`, never `grid-area` directly. Per-tab areas are in `styles.css`.
 - `data/<SYM>.json` carries our own daily `history`. Never delete or regenerate a data file casually.
@@ -55,5 +55,6 @@ There are no tests or linters. Verify UI changes in a browser at both ~1440px an
 - On Windows, read JSON with `encoding="utf-8"`. Python's `write_text` writes CRLF; write with `newline="\n"`.
 - `Element.append()` stringifies arrays; spread them (only `h()` flattens).
 - `html.dash-on .dash > .card` is very specific; dash-mode overrides need equally specific selectors.
-- Yahoo data is unofficial and inconsistent across endpoints. Next-earnings estimates come from `earnings_estimate`'s `0q` row to match the "What analysts expect" table.
+- Yahoo data is unofficial and inconsistent across endpoints; ETFs print `HTTP Error 404 ... No fundamentals data` during fetch (expected).
+- Playwright with the installed Chrome works for browser checks. In Git Bash set `MSYS_NO_PATHCONV=1`, or `#/t/...` routes get rewritten as paths.
 - Node isn't installed; test JS in the browser.

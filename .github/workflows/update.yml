@@ -57,6 +57,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: main
+          fetch-depth: 0   # score history rescores each past day's data file from git history
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -77,6 +78,11 @@ jobs:
           # optional: "Tickerbook you@example.com" (Settings > Variables). The SEC asks bots to identify themselves.
           SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
         run: python scripts/fetch.py --action "$ACTION" --ticker "$TICKER" --tag "$TAG" --order "$ORDER" --request-id "$REQUEST_ID"
+
+      # Never blocks the data update: if this fails, the previous score files are kept.
+      - name: Record score history
+        continue-on-error: true
+        run: node scripts/score_history.mjs
 
       - name: Save changes
         run: |

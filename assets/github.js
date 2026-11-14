@@ -73,7 +73,7 @@ export const STAGES = [
   { id: "send", label: "Sending request to GitHub", weight: 4, expect: 2 },
   { id: "queue", label: "Waiting for a GitHub runner", weight: 18, expect: 15 },
   { id: "setup", label: "Setting up", weight: 22, expect: 20, match: ["Set up job", "Check out repo", "Set up Python", "Install dependencies"] },
-  { id: "fetch", label: "Fetching data from Yahoo Finance", weight: 36, expect: 15, match: ["Fetch market data"] },
+  { id: "fetch", label: "Fetching data from Yahoo Finance", weight: 36, expect: 15, match: ["Fetch market data", "Record score history"] },
   { id: "save", label: "Saving to your repo", weight: 12, expect: 5, match: ["Save changes"] },
   { id: "load", label: "Loading results", weight: 8, expect: 2 },
 ];

@@ -312,10 +312,14 @@ def sp500_holdings(yahoo: list):
 
 def debt_by_quarter(bs: pd.DataFrame, n: int = 5):
     """Debt and cash at each of the last few quarter ends, to spot a jump (usually an
-    acquisition) that the trailing-12-month EBITDA hasn't caught up with yet."""
+    acquisition) that the trailing-12-month EBITDA hasn't caught up with yet. Also keeps unpaid
+    customer bills and inventory, for the "Are the profits real?" checks (vs the same quarter a year earlier)."""
     debt = row(bs, "Total Debt")
     cash = row(bs, "Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments")
-    return [{"period": k, "debt": debt.get(k), "cash": cash.get(k)} for k in sorted(debt)[-n:] if debt.get(k) is not None]
+    recv = row(bs, "Accounts Receivable", "Receivables")
+    inv = row(bs, "Inventory")
+    return [{"period": k, "debt": debt.get(k), "cash": cash.get(k), "receivables": recv.get(k), "inventory": inv.get(k)}
+            for k in sorted(debt)[-n:] if debt.get(k) is not None]
 
 
 def build_equity(tk: yf.Ticker, info: dict, prices: dict):

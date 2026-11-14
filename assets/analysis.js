@@ -461,6 +461,44 @@ export function splitRead(ov) {
   return null;
 }
 
+// ------------------------------------------------------------------ score history
+// The checks for any data file. Funds compare their holdings with the rest of the watchlist.
+export function signalsOf(d, watch = []) {
+  return d.type === "ETF" ? fundSignals(d, watch.filter((s) => s !== d.symbol)) : equitySignals(d);
+}
+const ST_CODE = { good: "g", ok: "o", bad: "b", na: "n" };
+// One day's score, compact, for data/scores/<SYM>.json (scripts/score_history.mjs writes those by
+// rescoring each day's data file from git history, so every point uses today's rules).
+// checks: { key: [pts 0–1, status letter] }.
+export function scorePoint(d, watch = []) {
+  const sig = signalsOf(d, watch), ov = overall(sig);
+  const ptsOf = (s) => (isNum(s.pts) ? s.pts : s.status === "good" ? 1 : s.status === "ok" ? 0.5 : 0);
+  return {
+    date: d.updated.slice(0, 10), score: ov.score,
+    parts: Object.fromEntries((ov.parts || []).map((p) => [p.id, p.score])),
+    checks: Object.fromEntries(sig.map((s) => [s.key, [Math.round(ptsOf(s) * 100) / 100, ST_CODE[s.status]]])),
+  };
+}
+// What moved the score from one day to the next: each check's share of the move, in score points
+// (its change in pts × weight ÷ the day's judged weight × 100), biggest first. A check that went from
+// judged to not judged (or back) is listed separately, since it changes what the score is out of.
+export function scoreMoves(points, kind = "equity") {
+  const W = SCORE_WEIGHTS[kind] || {};
+  const out = [];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i];
+    if (a.score == null || b.score == null) continue;
+    const possible = Object.entries(b.checks).filter(([, v]) => v[1] !== "n").reduce((s, [k]) => s + (W[k] ?? 1), 0) || 1;
+    const why = [...new Set([...Object.keys(a.checks), ...Object.keys(b.checks)])].map((k) => {
+      const [pa, sa] = a.checks[k] || [0, "n"], [pb, sb] = b.checks[k] || [0, "n"];
+      const flip = (sa === "n") !== (sb === "n");
+      return { key: k, from: pa, to: pb, fromSt: sa, toSt: sb, flip, pts: flip ? null : ((pb - pa) * (W[k] ?? 1) / possible) * 100 };
+    }).filter((x) => x.flip || Math.abs(x.pts) >= 0.5).sort((x, y) => (y.flip - x.flip) || Math.abs(y.pts) - Math.abs(x.pts));
+    out.push({ date: b.date, prev: a.date, from: a.score, to: b.score, diff: b.score - a.score, why });
+  }
+  return out;
+}
+
 // ------------------------------------------------------------------ narratives
 
 export function earningsStory(d) {
@@ -1200,6 +1238,10 @@ export function judge(key, d) {
       return { tone: per <= 0.005 ? "good" : per <= 0.02 ? "ok" : "bad", value: `${pct(c.shareChg, { sign: true, digits: 0 })} over ${yrs} year${yrs === 1 ? "" : "s"}`,
         text: per < -0.005 ? "Falling: each share owns more" : per <= 0.005 ? "About flat" : per <= 0.02 ? "Rising slowly" : "Rising over 2% a year: dilution" };
     }
+    case "stockComp": case "cashConversion": case "receivablesGrowth": case "inventoryGrowth": {
+      const c = earningsQuality(d)?.checks.find((x) => x.key === key);
+      return c && c.status !== "na" ? { tone: c.status, value: c.value, text: c.word } : null;
+    }
     case "capitalAllocation": {
       const c = cashUses(d);
       if (!c || !(c.fcf > 0)) return null;
@@ -1480,6 +1522,85 @@ export function dropStory(d, bench) {
 
 // The last few fiscal years of free cash flow and what it was spent on. Cash-flow rows are
 // signed the way the statement shows them: money going out is negative.
+// "Are the profits real?": five classic quality-of-earnings warnings. Shown on Financials only and
+// deliberately NOT part of the score (the user's choice): they're noisy and differ a lot by industry.
+// Each check: { key, label, status good/ok/bad/na, word, value, text, steps[], term }. Thresholds match
+// the glossary `rule` texts (shareCount, stockComp, cashConversion, receivablesGrowth, inventoryGrowth).
+export function earningsQuality(d) {
+  if (d.type !== "EQUITY") return null;
+  const name = shortName(d);
+  const years = (d.financials?.annual || []).filter((y) => isNum(y.revenue) && y.revenue > 0);
+  const qs = d.financials?.quarterly || [], bs = d.fundamentals?.debtByQuarter || [];
+  const fy = (r) => `FY${r.period.slice(2, 4)}`;
+  const WORD = { good: "Fine", ok: "Watch", bad: "Red flag", na: "n/a" };
+  const chk = (key, label, status, value, text, steps = [], term = key) => ({ key, label, status, word: WORD[status], value, text, steps, term });
+  const out = [];
+
+  // 1. Dilution: same reading as the shareCount rule of thumb
+  const cu = cashUses(d), sc = judge("shareCount", d);
+  if (sc && cu) {
+    const yrs = Math.max(1, cu.rows.length - 1), per = Math.pow(1 + cu.shareChg, 1 / yrs) - 1;
+    out.push(chk("shareCount", "Share count", sc.tone, `${pct(per, { sign: true })}/yr`,
+      sc.tone === "bad" ? `${name}'s share count grew about ${pct(per)} a year, so each share owns a shrinking slice of the profit. Profit has to grow faster than that just for each share's piece to stand still.`
+        : sc.tone === "ok" ? `The share count is creeping up slowly (about ${pct(per)} a year), usually from shares paid to employees. Not alarming, but buybacks aren't fully offsetting it.`
+        : per < -0.005 ? `The share count fell about ${pct(-per)} a year, so each share owns a growing slice of the profit.` : "The share count is about flat: new shares are offset by buybacks.",
+      [`Diluted shares: ${num(cu.sh0 / 1e6, 0)}M in ${fy(cu.rows[0])} → ${num(cu.sh1 / 1e6, 0)}M in ${fy(cu.rows[cu.rows.length - 1])} = ${pct(cu.shareChg, { sign: true })} over ${yrs} year${yrs === 1 ? "" : "s"}, about ${pct(per, { sign: true })} a year.`]));
+  } else out.push(chk("shareCount", "Share count", "na", "—", "Not enough yearly share counts to compare."));
+
+  // 2. Stock pay as a share of sales, and whether it's rising
+  const sb = years.filter((y) => isNum(y.stockComp)).slice(-2);
+  if (sb.length) {
+    const s1 = sb[sb.length - 1].stockComp / sb[sb.length - 1].revenue, s0 = sb.length > 1 ? sb[0].stockComp / sb[0].revenue : null;
+    const up = isNum(s0) ? s1 - s0 : 0;
+    const st = s1 > 0.1 || (s1 > 0.05 && up >= 0.01) ? "bad" : s1 > 0.03 || up >= 0.01 ? "ok" : "good";
+    out.push(chk("stockComp", "Stock pay", st, `${pct(s1)} of sales`,
+      (st === "bad" ? `${name} pays a lot in stock: ${price(s1)} of every $1 of sales${up >= 0.01 ? ", and rising" : ""}. It's a real cost even though no cash leaves, because the new shares dilute existing owners. Some "adjusted" profit figures leave it out.`
+        : st === "ok" ? `Stock pay is ${pct(s1)} of sales${up >= 0.01 ? `, up from ${pct(s0)}` : ""}: worth watching, since it dilutes owners and is often left out of "adjusted" profit.`
+        : `Stock pay is a small ${pct(s1)} of sales${isNum(s0) ? ` (${pct(s0)} the year before)` : ""}, so it barely dents what owners earn.`),
+      sb.map((y) => `${fy(y)}: ${money(y.stockComp)} stock pay ÷ ${money(y.revenue)} sales = ${pct(y.stockComp / y.revenue)}`)));
+  } else out.push(chk("stockComp", "Stock pay", "na", "—", "Yahoo doesn't list stock-based pay for this company."));
+
+  // 3. Cash vs profit, summed over the years we have to smooth timing swings
+  const cy = years.filter((y) => isNum(y.operatingCashflow) && isNum(y.netIncome)).slice(-4);
+  const ocf = cy.reduce((s, y) => s + y.operatingCashflow, 0), ni = cy.reduce((s, y) => s + y.netIncome, 0);
+  if (cy.length >= 2 && ni > 0) {
+    const r = ocf / ni, st = r >= 1 ? "good" : r >= 0.8 ? "ok" : "bad";
+    out.push(chk("cashConversion", "Cash vs profit", st, `${num(r, 2)}× profit`,
+      st === "good" ? `Over ${cy.length} years the business brought in ${money(ocf)} of cash from operations, at least as much as the ${money(ni)} of reported profit. The profits are turning into real cash.`
+        : st === "ok" ? `Cash from operations (${money(ocf)}) came in a bit below reported profit (${money(ni)}) over ${cy.length} years. Usually timing, but worth a look.`
+        : `Over ${cy.length} years, cash from operations (${money(ocf)}) fell well short of reported profit (${money(ni)}). Profit that doesn't turn into cash can mean aggressive accounting, or customers slow to pay.`,
+      [`${fy(cy[0])}–${fy(cy[cy.length - 1])}: ${money(ocf)} operating cash flow ÷ ${money(ni)} net income = ${num(r, 2)}×`]));
+  } else out.push(chk("cashConversion", "Cash vs profit", "na", "—", ni <= 0 && cy.length ? "It lost money over these years, so there's no profit to compare cash with." : "Not enough yearly statements."));
+
+  // 4–5. Unpaid customer bills and inventory vs sales, same quarter a year apart (handles seasons)
+  const acq = acquisitionStep(d);
+  const vsSales = (key, label, field, minShare, what) => {
+    const rows = bs.filter((r) => isNum(r[field]) && r[field] > 0);
+    const now = rows[rows.length - 1];
+    const ago = now && rows.find((r) => Math.abs((Date.parse(now.period) - Date.parse(r.period)) / 864e5 - 365) <= 20);
+    const q1 = now && qs.find((x) => x.period === now.period), q0 = ago && qs.find((x) => x.period === ago.period);
+    if (!now || !ago || !isNum(q1?.revenue) || !isNum(q0?.revenue) || q0.revenue <= 0) return chk(key, label, "na", "—", `Yahoo doesn't have ${what} for the same quarter a year apart.`);
+    const share = now[field] / (q1.revenue * 4);
+    if (share < minShare) return chk(key, label, "na", "Small", `${name}'s ${what} are small next to its sales (${pct(share, { digits: 0 })} of a year's sales), so this check doesn't tell much.`);
+    const g = now[field] / ago[field] - 1, rg = q1.revenue / q0.revenue - 1, gap = g - rg;
+    let st = gap > 0.25 ? "bad" : gap > 0.1 ? "ok" : "good";
+    if (st === "bad" && acq) st = "ok";
+    const ql = (r) => quarterLabel(r.period);
+    return chk(key, label, st, `${pct(g, { sign: true, digits: 0 })} vs sales ${pct(rg, { sign: true, digits: 0 })}`,
+      (st === "good" ? `${what[0].toUpperCase()}${what.slice(1)} grew ${pct(g, { sign: true, digits: 0 })} in a year, in step with sales (${pct(rg, { sign: true, digits: 0 })}).`
+        : `${what[0].toUpperCase()}${what.slice(1)} grew ${pct(g, { sign: true, digits: 0 })} in a year while sales grew ${pct(rg, { sign: true, digits: 0 })}. ${key === "receivablesGrowth" ? "Sales on credit that customers haven't paid for yet can mean easier terms to hit targets, or customers struggling to pay." : "Goods piling up faster than they sell can mean demand is slowing and discounts are coming. It can also be stocking up for expected growth."}`)
+        + (acq && gap > 0.1 ? " A big acquisition in this period can cause this too, since the balance sheet takes in the whole company at once." : ""),
+      [`${ql(ago)} → ${ql(now)}: ${money(ago[field])} → ${money(now[field])} = ${pct(g, { sign: true })}`, `Quarter's sales: ${money(q0.revenue)} → ${money(q1.revenue)} = ${pct(rg, { sign: true })}`, `Gap: ${pct(gap, { sign: true })} (over +10% = watch, over +25% = red flag)`]);
+  };
+  out.push(vsSales("receivablesGrowth", "Unpaid customer bills", "receivables", 0.03, "unpaid customer bills"));
+  out.push(vsSales("inventoryGrowth", "Inventory", "inventory", 0.05, "inventory"));
+
+  const judged = out.filter((c) => c.status !== "na"), bad = judged.filter((c) => c.status === "bad").length, ok = judged.filter((c) => c.status === "ok").length;
+  const tone = !judged.length ? "na" : bad ? "bad" : ok ? "ok" : "good";
+  const label = !judged.length ? "Not enough data" : bad ? `${bad} red flag${bad === 1 ? "" : "s"}` : ok ? `${ok} to watch` : "No red flags";
+  return { checks: out, tone, label, judged: judged.length };
+}
+
 export function cashUses(d, years = 4) {
   const rows = (d.financials?.annual || []).filter((r) => isNum(r.freeCashflow)).slice(-years);
   if (rows.length < 2) return null;

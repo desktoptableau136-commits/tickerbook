@@ -450,6 +450,48 @@ export const GLOSSARY = {
     why: "Your slice of the profit depends on it. If profit grows 10% but the share count grows 5%, each share's profit only grows about 5%.",
     rule: "Falling or flat is good. Rising more than about 2% a year means employees or new investors are taking a growing slice.",
   },
+  earningsQuality: {
+    term: "Quality of earnings",
+    short: "Whether reported profit is real, lasting cash, or flattered by accounting and timing.",
+    what: "Profit is an accounting figure: it counts sales when they're made, not when customers pay, and some costs (like stock pay) never leave as cash. Investors check a few signs that profit and reality are drifting apart.",
+    why: "Problems often show up here before they show up in profit: customers slow to pay, unsold goods piling up, or owners quietly diluted. One sign alone is rarely proof; several together deserve a closer look.",
+    rule: "Not part of the score. Each sign reads Fine, Watch or Red flag. Treat them as questions to ask, not verdicts.",
+  },
+  stockComp: {
+    term: "Stock-based pay",
+    short: "Paying employees in company shares instead of cash.",
+    what: "Common in tech. No cash leaves the company, but each new share dilutes existing owners, and many companies' \"adjusted\" profit leaves this cost out.",
+    why: "It's a real cost to owners. A company that looks very profitable can be paying a big part of that profit away in shares.",
+    rule: "Under 3% of sales is small. 3–10% is worth watching, as is a rise of a point or more in a year. Over 10%, or over 5% and rising, is a red flag.",
+  },
+  cashConversion: {
+    term: "Cash vs profit (cash conversion)",
+    short: "How much cash the business brought in for each $1 of reported profit.",
+    what: "Operating cash flow ÷ net income, added up over several years so timing swings even out. Healthy companies usually bring in at least as much cash as profit, because costs like depreciation reduce profit but not cash.",
+    why: "Profit that never turns into cash is the classic sign of aggressive accounting, or of sales to customers who aren't paying.",
+    rule: "1× or more is fine. 0.8–1× is worth watching. Under 0.8× is a red flag.",
+  },
+  receivablesGrowth: {
+    term: "Unpaid customer bills (receivables)",
+    short: "Money customers owe for things they've already received.",
+    what: "Sales on credit are counted as revenue right away, but the cash arrives later. The amount still owed sits on the balance sheet as accounts receivable. We compare it with the same quarter a year earlier, so seasonal swings cancel out.",
+    why: "If unpaid bills grow much faster than sales, the company may be offering easier terms to hit its targets, or customers may be struggling to pay. Either way, that profit is less certain.",
+    rule: "Growing up to 10 points faster than sales is fine; 10–25 points faster is worth watching; over 25 points is a red flag (softened when a big acquisition explains it). Skipped when they're under 3% of a year's sales.",
+  },
+  inventoryGrowth: {
+    term: "Inventory",
+    short: "Goods made or bought but not yet sold.",
+    what: "Products sitting in warehouses and stores. We compare it with the same quarter a year earlier, so holiday stocking doesn't look like a problem.",
+    why: "Inventory growing much faster than sales can mean demand is slowing, which often leads to discounts and lower margins later. It can also be deliberate stocking up for expected growth, so read the company's explanation.",
+    rule: "Growing up to 10 points faster than sales is fine; 10–25 points faster is worth watching; over 25 points is a red flag (softened when a big acquisition explains it). Skipped when it's under 5% of a year's sales.",
+  },
+  scoreHistory: {
+    term: "Score over time",
+    short: "This dashboard's checklist score for each day it has data.",
+    what: "Every past day is rescored with today's rules, using that day's saved data. So the line moves only when the company's numbers or the market moved, never because the rules changed.",
+    why: "One number can't tell you direction. A 60 that was 75 a month ago reads very differently from a 60 that was 45.",
+    rule: "Small day-to-day wiggles (a point or two) are noise. Look for steps, and check which checks caused them.",
+  },
 };
 
 export function term(key) {
