@@ -31,6 +31,10 @@
     {
       "symbol": "COST",
       "tag": "researching"
+    },
+    {
+      "symbol": "DIS",
+      "tag": "researching"
     }
   ]
 }
