@@ -410,6 +410,14 @@ td.sym a { font-weight: 700; color: var(--ink); }
 }
 .field input:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
 .field .hint { font-size: 12.5px; color: var(--muted); }
+.sg-field { position: relative; }
+.suggest { list-style: none; margin: -2px 0 0; padding: 4px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); max-height: 300px; overflow-y: auto; }
+.suggest li { display: grid; grid-template-columns: 4.6em 1fr auto; gap: 10px; align-items: center; min-height: 44px; padding: 6px 8px; border-radius: 9px; cursor: pointer; }
+.suggest li:hover, .suggest li[aria-selected="true"] { background: var(--surface-2); }
+.suggest .sg-sym { font-weight: 700; letter-spacing: .02em; }
+.suggest .sg-name { display: grid; min-width: 0; }
+.suggest .sg-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggest .sg-tag { color: var(--accent); font-weight: 600; white-space: nowrap; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; border-radius: 12px; background: var(--surface-2); }
 .seg button { min-height: 38px; border: 0; border-radius: 9px; background: none; cursor: pointer; font-weight: 600; color: var(--ink-2); }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); }

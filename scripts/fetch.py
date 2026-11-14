@@ -15,6 +15,7 @@ Writes:
   data/_bench.json     SPY (S&P 500) and QQQ (Nasdaq 100) prices with dividends folded in,
                        for the price chart's "vs" comparisons
   data/index.json      list of tickers + tags + last update time
+  data/_names.json     company + ETF names and tickers from SEC EDGAR, for name search in Research (refresh only)
   data/last_request.json  outcome of the most recent add/remove/tag request
   data/_ideas.json     companies worth a look (watchlist peers + a broad screen), refresh only
   data/logos/          <SYM>.png/.jpg company icons + index.json (outcome per symbol; "skip": true hides a wrong one)
@@ -23,6 +24,7 @@ Writes:
 from __future__ import annotations
 
 import argparse
+import csv
 import io
 import json
 import math
@@ -1276,6 +1278,64 @@ def logo_sites(wl, extra=None):
 
 # ---------------------------------------------------------------- main
 
+FUND_DATASET = "https://www.sec.gov/data-research/sec-markets-data/investment-company-series-class-information"
+SMALL_WORDS = {"of", "and", "the", "for", "&"}
+KEEP_CAPS = {"ETF", "ETN", "SPDR", "REIT", "USA", "US", "II", "III", "IV", "AG", "SA", "SE", "NV", "LP", "ADR", "PLC", "MSCI", "ESG"}
+
+
+def tidy_name(name: str) -> str:
+    """SEC names are often all caps ("AMAZON COM INC"); make those readable, leave mixed case alone."""
+    name = re.sub(r"\((?:R|TM)\)|[®™]", "", name)
+    name = re.sub(r"\s*/[A-Z]{2,3}/?\s*$", "", name).replace("/", " ").strip(" ,.")  # "CORP /DE/" state suffix
+    name = re.sub(r"\s+", " ", name)
+    alpha = [w for w in name.split(" ") if w.strip(",.").isalpha()]
+    if sum(w.isupper() for w in alpha) < 0.6 * len(alpha):  # mostly mixed case already
+        return " ".join(w.upper() if w.upper() in ("ETF", "SPDR") else w for w in name.split(" "))
+    def word(w, first):
+        if not w.strip(",.").isalpha() or w.strip(",.") in KEEP_CAPS:
+            return w  # AT&T, 3M, S&P, ETF
+        if w.lower() in SMALL_WORDS and not first:
+            return w.lower()
+        return w.capitalize()
+    return " ".join(word(w, i == 0) for i, w in enumerate(name.split(" ")))
+
+
+def build_names():
+    """data/_names.json: every SEC-listed company plus ETFs, so Research can look a ticker up by name.
+    Stocks come from company_tickers_exchange.json (already sorted biggest first). ETFs come from the
+    SEC's fund series/class dataset; mutual fund classes (5+ letters ending in X) are left out to keep it small."""
+    path = DATA / "_names.json"
+    raw = sec_get("https://www.sec.gov/files/company_tickers_exchange.json")
+    stocks, seen = [], set()
+    for _cik, name, sym, exch in raw["data"]:
+        sym = (sym or "").upper()
+        # preferred shares, warrants, units and rights aren't the common stock a beginner means
+        if sym and sym not in seen and TICKER_RE.match(sym) and not re.search(r"-(?:P[A-Z]?|WS?|U|R|RT)$|-P-", sym):
+            seen.add(sym)
+            stocks.append([sym, tidy_name(name or sym), exch or ""])
+    # the dataset page links each year's CSV, newest first; its file names aren't consistent
+    page = sec_get(FUND_DATASET, as_json=False)
+    csv_url = "https://www.sec.gov" + re.search(r'href="(/files/investment/[^"]+\.csv)"', page).group(1)
+    funds = []
+    for r in csv.DictReader(io.StringIO(sec_get(csv_url, as_json=False).lstrip("﻿"))):
+        sym = (r.get("Class Ticker") or "").strip().upper()
+        if not sym or sym in seen or re.fullmatch(r"[A-Z]{4,}X", sym) or not TICKER_RE.match(sym):
+            continue
+        series, cls = tidy_name(r.get("Series Name") or ""), tidy_name(r.get("Class Name") or "")
+        name = series if not cls or cls.lower() == series.lower() else f"{series} · {cls}"
+        seen.add(sym)
+        funds.append([sym, name])
+    if len(stocks) < 5000:
+        raise LookupError(f"only {len(stocks)} companies came back; keeping the old list")
+    # one entry per line, so the daily commit diff stays small
+    lines = [json.dumps(x, ensure_ascii=False, separators=(",", ":")) for x in stocks]
+    flines = [json.dumps(x, ensure_ascii=False, separators=(",", ":")) for x in sorted(funds)]
+    body = ('{"source":"SEC EDGAR company and fund ticker lists","stocks":[\n' + ",\n".join(lines)
+            + '\n],"funds":[\n' + ",\n".join(flines) + "\n]}\n")
+    path.write_text(body, encoding="utf-8", newline="\n")
+    print(f"   {len(stocks)} companies, {len(funds)} funds")
+
+
 def write_json(path: Path, obj):
     path.write_text(json.dumps(obj, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
 
@@ -1547,6 +1607,12 @@ def main():
             update_logos(logo_sites(wl))
         except Exception as e:
             print(f"   FAILED: {e}")
+        if SEC_UA:
+            print("-> company names")
+            try:
+                build_names()
+            except Exception as e:
+                print(f"   FAILED: {e}")
 
     write_index(wl, moves=archived_moves(wl) if args.action == "refresh" else None)
 

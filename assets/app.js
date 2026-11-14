@@ -2,6 +2,7 @@ import { GLOSSARY, EARNINGS_GUIDE } from "./glossary.js";
 import * as A from "./analysis.js";
 import { lineChart, columnChart, sparkline, hbars, legend } from "./charts.js";
 import * as GH from "./github.js";
+import * as Lookup from "./lookup.js";
 
 // ================================================================ tiny DOM helper
 // Untrusted strings (names, headlines, firm names) only ever go in as text nodes.
@@ -2098,19 +2099,80 @@ function openResearch(prefill = "") {
   if (state.task?.running) return openTaskSheet();
   let tag = "researching";
   openSheet((s) => {
-    const input = h("input", { id: "r-ticker", value: prefill, placeholder: "e.g. NVDA", autocapitalize: "characters", autocomplete: "off", spellcheck: "false", maxlength: 15,
-      style: "text-transform:uppercase;font-weight:650;letter-spacing:.03em" });
+    const input = h("input", { id: "r-ticker", value: prefill, placeholder: "e.g. Disney or DIS", autocapitalize: "none", autocomplete: "off", spellcheck: "false", maxlength: 60,
+      role: "combobox", "aria-autocomplete": "list", "aria-expanded": "false", "aria-controls": "r-suggest", enterkeyhint: "search" });
+    // name search: suggestions under the box; picking one fills in its ticker
+    const list = h("ul", { class: "suggest", id: "r-suggest", role: "listbox", "aria-label": "Matching companies and funds", hidden: true });
+    const picked = h("div", { class: "hint", "aria-live": "polite" }, "Type a company name or a ticker. Takes about a minute.");
+    let matches = [], active = -1, chosen = null, namesOk = null;
+    const tagOf = (sym) => state.index.tickers.find((t) => t.symbol === sym)?.tag;
+    const describe = (m) => [m.name, m.fund ? "Fund" : m.x || null].filter(Boolean).join(" · ");
+    // native replaceChildren stringifies null, so build through h()
+    const showPicked = (m) => picked.replaceChildren(h("span", {}, h("b", {}, m.s), ` · ${describe(m)}`,
+      m.also.length ? h("div", {}, `The same company also trades as ${m.also.join(", ")}. These are share classes: they usually differ only in voting rights, and their prices move almost together.`) : null,
+      m.other ? h("div", {}, `This isn't ${m.other}, the company's main stock. A second listing under the same name is usually a bond or note.`) : null,
+      m.x === "OTC" ? h("div", {}, "Trades over the counter, so Yahoo's data can be thin.") : null));
+    const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant"); active = -1; };
+    const choose = (m) => {
+      const tg = tagOf(m.s);
+      if (tg && tg !== "archived") { closeSheet(); location.hash = `#/t/${m.s}`; return; }
+      chosen = m; input.value = m.s; close(); err.replaceChildren(); showPicked(m);
+    };
+    const setActive = (i) => {
+      active = i;
+      [...list.children].forEach((li, j) => li.setAttribute("aria-selected", String(j === i)));
+      if (i >= 0) { input.setAttribute("aria-activedescendant", `r-opt-${i}`); list.children[i]?.scrollIntoView({ block: "nearest" }); }
+    };
+    const update = () => {
+      chosen = null;
+      const q = input.value.trim();
+      if (namesOk === false || q.length < 1) { close(); list.replaceChildren(); return; }
+      matches = Lookup.searchNames(q);
+      if (!matches.length) {
+        close();
+        if (q.length >= 3 && !Lookup.known(q)) picked.replaceChildren(`No US-listed company or ETF matches “${q}”. It may be private, listed only outside the US, or very new (this list updates daily). If you know its ticker, type that.`);
+        return;
+      }
+      picked.replaceChildren("Pick one below, or keep typing.");
+      list.replaceChildren(...matches.map((m, i) => {
+        const tg = tagOf(m.s);
+        return h("li", { id: `r-opt-${i}`, role: "option", "aria-selected": "false", on: { mousedown: (e) => e.preventDefault(), click: () => choose(m) } },
+          h("span", { class: "sg-sym" }, m.s),
+          h("span", { class: "sg-name" }, h("span", {}, m.name), h("span", { class: "muted small" }, [m.fund ? "Fund" : m.x, m.why].filter(Boolean).join(" · "))),
+          tg ? h("span", { class: "sg-tag small" }, tg === "archived" ? "Archived" : "On your list ›") : null);
+      }));
+      list.hidden = false; input.setAttribute("aria-expanded", "true"); setActive(-1);
+    };
+    Lookup.loadNames().then((ok) => {
+      namesOk = ok;
+      if (!ok) picked.replaceChildren("Name search isn't available right now, so type the ticker. Takes about a minute.");
+      else if (input.value.trim()) { update(); const m = Lookup.known(input.value.trim()); if (m && !list.hidden) { const hit = matches.find((x) => x.s === m.s); if (hit) { chosen = hit; close(); showPicked(hit); } } }
+    });
+    input.addEventListener("input", update);
+    input.addEventListener("keydown", (e) => {
+      if (list.hidden) return;
+      if (e.key === "ArrowDown") { e.preventDefault(); setActive((active + 1) % matches.length); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); setActive(active <= 0 ? matches.length - 1 : active - 1); }
+      else if (e.key === "Enter" && active >= 0) { e.preventDefault(); choose(matches[active]); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+    });
+    input.addEventListener("blur", () => setTimeout(close, 120));
     const seg = h("div", { class: "seg", role: "group", "aria-label": "Tag" },
       ["researching", "watching"].map((t) => h("button", { type: "button", "aria-pressed": String(t === tag),
         on: { click: (e) => { tag = t; seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b === e.currentTarget))); } } }, t[0].toUpperCase() + t.slice(1))));
     const err = h("div", {});
     const form = h("form", { on: { submit: (e) => {
       e.preventDefault();
-      const t = input.value.trim().toUpperCase();
-      if (!/^[A-Z0-9][A-Z0-9.\-=^]{0,14}$/.test(t)) { err.replaceChildren(h("div", { class: "notice bad", style: "margin-bottom:12px" }, "That doesn't look like a ticker symbol.")); return; }
+      const typed = input.value.trim(), t = chosen?.s || typed.toUpperCase();
+      const bad = (msg) => err.replaceChildren(h("div", { class: "notice bad", style: "margin-bottom:12px" }, msg));
+      // a name that isn't a ticker: ask them to pick rather than guess and research the wrong company
+      if (!chosen && !Lookup.known(typed) && matches.length && namesOk) { bad("That isn't a ticker on the list. Pick the company from the suggestions."); update(); return; }
+      if (!/^[A-Z0-9][A-Z0-9.\-=^]{0,14}$/.test(t)) { bad("That doesn't look like a ticker symbol."); return; }
+      const tg = tagOf(t);
+      if (tg && tg !== "archived") { closeSheet(); location.hash = `#/t/${t}`; return; }
       startTask({ action: "add", ticker: t, tag, title: `Researching ${t}` });
     } } },
-      h("div", { class: "field" }, h("label", { for: "r-ticker" }, "Ticker symbol"), input, h("div", { class: "hint" }, "US tickers work best. Takes about a minute.")),
+      h("div", { class: "field sg-field" }, h("label", { for: "r-ticker" }, "Company or ticker"), input, list, picked),
       h("div", { class: "field" }, h("label", {}, "Add it as"), seg),
       err,
       h("button", { class: "btn primary block", type: "submit" }, "Start research"));

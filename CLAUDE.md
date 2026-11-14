@@ -20,13 +20,14 @@ There are no tests or linters. Verify UI changes in a browser at both ~1440px an
 
 ## Map
 
-- `watchlist.json` → `scripts/fetch.py` → `data/<SYM>.json`, `_bench.json`, `_ideas.json`, `logos/`, `index.json`, `last_request.json` → browser.
+- `watchlist.json` → `scripts/fetch.py` → `data/<SYM>.json`, `_bench.json`, `_ideas.json`, `_names.json`, `logos/`, `index.json`, `last_request.json` → browser.
 - `scripts/score_history.mjs` (Actions only) rescores each day's data file from git history → `data/scores/<SYM>.json`.
 - `assets/app.js`: router, every page and tab, sheets, popovers, research task.
 - `assets/analysis.js`: pure functions (signals, valuation, plain-English text, feature helpers).
 - `assets/charts.js`: hand-rolled SVG charts.
 - `assets/glossary.js`: jargon entries; adding a metric usually means adding an entry.
 - `assets/github.js`: Research client.
+- `assets/lookup.js`: name → ticker search for the Research box.
 - `.github/workflows/update.yml`: fetch + deploy.
 
 ## Things that must stay in sync
