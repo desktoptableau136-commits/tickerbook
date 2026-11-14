@@ -17,11 +17,11 @@
       "tag": "watching"
     },
     {
-      "symbol": "NVDA",
+      "symbol": "DIS",
       "tag": "researching"
     },
     {
-      "symbol": "VZ",
+      "symbol": "NVDA",
       "tag": "researching"
     },
     {
@@ -30,10 +30,6 @@
     },
     {
       "symbol": "COST",
-      "tag": "researching"
-    },
-    {
-      "symbol": "DIS",
       "tag": "researching"
     }
   ]
