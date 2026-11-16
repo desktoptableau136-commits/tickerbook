@@ -1,3 +1,4 @@
 {"symbol":"DIS","kind":"equity","version":5,"points":[
-{"date":"2026-11-14","score":64,"parts":{"business":72,"price":37,"mood":66},"checks":{"valuation":[0.37,"b"],"growth":[0.52,"o"],"profit":[0.73,"o"],"health":[0.73,"o"],"track":[1,"g"],"revisions":[0.55,"o"],"analysts":[0.47,"o"],"trend":[1,"g"]},"sha":"0f08003f06"}
+{"date":"2026-11-14","score":64,"parts":{"business":72,"price":37,"mood":66},"checks":{"valuation":[0.37,"b"],"growth":[0.52,"o"],"profit":[0.73,"o"],"health":[0.73,"o"],"track":[1,"g"],"revisions":[0.55,"o"],"analysts":[0.47,"o"],"trend":[1,"g"]},"sha":"0f08003f06"},
+{"date":"2026-11-16","score":63,"parts":{"business":72,"price":36,"mood":66},"checks":{"valuation":[0.36,"b"],"growth":[0.52,"o"],"profit":[0.73,"o"],"health":[0.73,"o"],"track":[1,"g"],"revisions":[0.55,"o"],"analysts":[0.47,"o"],"trend":[1,"g"]},"sha":"work"}
 ]}
