@@ -6,5 +6,6 @@
 {"date":"2026-11-16","score":93,"parts":{"business":100,"price":92,"mood":79},"checks":{"valuation":[0.92,"g"],"growth":[1,"g"],"profit":[1,"g"],"health":[1,"g"],"track":[1,"g"],"revisions":[0.67,"g"],"analysts":[0.76,"g"],"trend":[1,"g"]},"sha":"be94f89c42"},
 {"date":"2026-11-17","score":94,"parts":{"business":100,"price":94,"mood":83},"checks":{"valuation":[0.94,"g"],"growth":[1,"g"],"profit":[1,"g"],"health":[1,"g"],"track":[1,"g"],"revisions":[0.67,"g"],"analysts":[0.87,"g"],"trend":[1,"g"]},"sha":"d8010dd4d7"},
 {"date":"2026-11-18","score":95,"parts":{"business":100,"price":94,"mood":83},"checks":{"valuation":[0.94,"g"],"growth":[1,"g"],"profit":[1,"g"],"health":[1,"g"],"track":[1,"g"],"revisions":[0.67,"g"],"analysts":[0.88,"g"],"trend":[1,"g"]},"sha":"8bfa7ceec3"},
-{"date":"2026-11-19","score":94,"parts":{"business":100,"price":94,"mood":82},"checks":{"valuation":[0.94,"g"],"growth":[1,"g"],"profit":[1,"g"],"health":[1,"g"],"track":[1,"g"],"revisions":[0.67,"g"],"analysts":[0.85,"g"],"trend":[1,"g"]},"sha":"work"}
+{"date":"2026-11-19","score":94,"parts":{"business":100,"price":94,"mood":82},"checks":{"valuation":[0.94,"g"],"growth":[1,"g"],"profit":[1,"g"],"health":[1,"g"],"track":[1,"g"],"revisions":[0.67,"g"],"analysts":[0.85,"g"],"trend":[1,"g"]},"sha":"ee34f76194"},
+{"date":"2026-11-20","score":95,"parts":{"business":100,"price":95,"mood":84},"checks":{"valuation":[0.95,"g"],"growth":[1,"g"],"profit":[1,"g"],"health":[1,"g"],"track":[1,"g"],"revisions":[0.67,"g"],"analysts":[0.92,"g"],"trend":[1,"g"]},"sha":"work"}
 ]}
